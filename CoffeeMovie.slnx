@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CoffeeMovie.Core/CoffeeMovie.Core.csproj" />
+    <Project Path="src/CoffeeMovie.Storage/CoffeeMovie.Storage.csproj" />
+    <Project Path="src/CoffeeMovie.Studio/CoffeeMovie.Studio.csproj" />
+    <Project Path="src/CoffeeMovie.Reader/CoffeeMovie.Reader.csproj" />
+    <Project Path="src/CoffeeMovie.Verification/CoffeeMovie.Verification.csproj" />
+  </Folder>
+</Solution>

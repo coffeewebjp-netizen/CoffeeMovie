@@ -1,0 +1,17 @@
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+.nuget/
+.tools/
+dist/
+.verify-build/
+*.user
+*.suo
+*.apk
+*.aab
+*.jks
+*.keystore
+*.Signing.props
+

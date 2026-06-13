@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\CoffeeMovie.Core\CoffeeMovie.Core.csproj" />
+    <ProjectReference Include="..\CoffeeMovie.Storage\CoffeeMovie.Storage.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>CoffeeMovie.Studio</RootNamespace>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationTitle>CoffeeMovie Studio</ApplicationTitle>
+    <ApplicationIcon />
+  </PropertyGroup>
+
+</Project>
+
