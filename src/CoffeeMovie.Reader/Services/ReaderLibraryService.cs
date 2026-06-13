@@ -94,10 +94,13 @@ public sealed class ReaderLibraryService
         var vttPath = Path.Combine(subtitleDirectory, Path.GetFileNameWithoutExtension(safeFileName) + ".vtt");
         await File.WriteAllTextAsync(vttPath, SubtitleParser.ToWebVtt(document.Cues), Encoding.UTF8, cancellationToken);
 
+        var metadata = SubtitleFileMetadataService.Infer(file.FileName);
         var track = new SubtitleTrack
         {
-            Label = Path.GetFileNameWithoutExtension(file.FileName),
-            Language = "ja",
+            Label = metadata.Label,
+            Language = metadata.Language,
+            Role = metadata.Role,
+            GroupKey = metadata.GroupKey,
             Format = document.Format,
             SourceFileName = file.FileName,
             LocalPath = originalPath,

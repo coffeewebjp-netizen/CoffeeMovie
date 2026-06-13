@@ -23,19 +23,107 @@
             <Setter Property="CaretBrush" Value="White" />
             <Setter Property="Padding" Value="8" />
         </Style>
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style TargetType="TabItem">
+            <Setter Property="Padding" Value="14,7" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBorder"
+                                Background="#121A26"
+                                BorderBrush="#27364A"
+                                BorderThickness="1"
+                                CornerRadius="6,6,0,0"
+                                Padding="{TemplateBinding Padding}"
+                                Margin="{TemplateBinding Margin}">
+                            <ContentPresenter x:Name="ContentSite"
+                                              ContentSource="Header"
+                                              RecognizesAccessKey="True"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              TextElement.Foreground="White" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="#5DE0D0" />
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#5DE0D0" />
+                                <Setter TargetName="ContentSite" Property="TextElement.Foreground" Value="#04100F" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="#173447" />
+                                <Setter TargetName="ContentSite" Property="TextElement.Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style TargetType="DataGrid">
             <Setter Property="Background" Value="#0B111A" />
             <Setter Property="Foreground" Value="White" />
             <Setter Property="BorderBrush" Value="#1E2A3A" />
+            <Setter Property="RowHeaderWidth" Value="0" />
             <Setter Property="GridLinesVisibility" Value="Horizontal" />
             <Setter Property="HorizontalGridLinesBrush" Value="#1E2A3A" />
             <Setter Property="RowBackground" Value="#0B111A" />
             <Setter Property="AlternatingRowBackground" Value="#101824" />
+            <Setter Property="AlternationCount" Value="2" />
             <Setter Property="HeadersVisibility" Value="Column" />
             <Setter Property="AutoGenerateColumns" Value="False" />
             <Setter Property="CanUserAddRows" Value="False" />
             <Setter Property="CanUserDeleteRows" Value="False" />
             <Setter Property="IsReadOnly" Value="True" />
+        </Style>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#121A26" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#27364A" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style TargetType="DataGridRow">
+            <Setter Property="Background" Value="#0B111A" />
+            <Setter Property="Foreground" Value="White" />
+            <Style.Triggers>
+                <Trigger Property="AlternationIndex" Value="1">
+                    <Setter Property="Background" Value="#101824" />
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#152235" />
+                    <Setter Property="Foreground" Value="White" />
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#173447" />
+                    <Setter Property="Foreground" Value="White" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#27364A" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="Foreground" Value="White" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Background" Value="#101824" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#27364A" />
+        </Style>
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#101824" />
+            <Setter Property="Foreground" Value="White" />
         </Style>
     </Application.Resources>
 </Application>

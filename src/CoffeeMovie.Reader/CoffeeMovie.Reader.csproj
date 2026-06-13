@@ -31,6 +31,13 @@
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <AndroidEnableMarshalMethods>false</AndroidEnableMarshalMethods>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
   <Import Project="..\..\.tools\android-signing\CoffeeMovie.Reader.Signing.props" Condition="Exists('..\..\.tools\android-signing\CoffeeMovie.Reader.Signing.props')" />
 
 </Project>

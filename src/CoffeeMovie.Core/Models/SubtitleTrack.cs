@@ -8,7 +8,13 @@ public sealed class SubtitleTrack
 
     public string? Language { get; set; }
 
+    public SubtitleTrackRole Role { get; set; } = SubtitleTrackRole.Unknown;
+
+    public string? GroupKey { get; set; }
+
     public SubtitleFormat Format { get; set; } = SubtitleFormat.Unknown;
+
+    public string? SourceUri { get; set; }
 
     public string SourceFileName { get; set; } = string.Empty;
 
@@ -19,6 +25,8 @@ public sealed class SubtitleTrack
     public int CueCount { get; set; }
 
     public List<SubtitleCue> Cues { get; set; } = [];
+
+    public List<SubtitleCueLearningState> CueLearningStates { get; set; } = [];
 
     public DateTimeOffset ImportedAt { get; set; } = DateTimeOffset.UtcNow;
 }

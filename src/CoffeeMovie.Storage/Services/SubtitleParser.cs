@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using CoffeeMovie.Core.Models;
@@ -49,9 +50,11 @@ public static class SubtitleParser
                 continue;
             }
 
+            var index = cues.Count + 1;
             cues.Add(new SubtitleCue
             {
-                Index = cues.Count + 1,
+                Id = CreateCueId(index, start, end, text),
+                Index = index,
                 Start = start,
                 End = end,
                 Text = text
@@ -87,6 +90,32 @@ public static class SubtitleParser
         return builder.ToString();
     }
 
+    public static string ToSrt(IEnumerable<SubtitleCue> cues)
+    {
+        var builder = new StringBuilder();
+
+        foreach (var cue in cues)
+        {
+            builder.AppendLine(cue.Index.ToString(CultureInfo.InvariantCulture));
+            builder
+                .Append(FormatSrtTimestamp(cue.Start))
+                .Append(" --> ")
+                .AppendLine(FormatSrtTimestamp(cue.End));
+
+            builder.AppendLine(NormalizeCueText(cue.Text));
+            builder.AppendLine();
+        }
+
+        return builder.ToString();
+    }
+
+    public static string ToSubtitleText(IEnumerable<SubtitleCue> cues, SubtitleFormat format)
+    {
+        return format == SubtitleFormat.WebVtt
+            ? ToWebVtt(cues)
+            : ToSrt(cues);
+    }
+
     public static SubtitleFormat InferFormat(string content, string? sourceFileName = null)
     {
         if (!string.IsNullOrWhiteSpace(sourceFileName))
@@ -114,6 +143,13 @@ public static class SubtitleParser
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{(int)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}.{value.Milliseconds:000}");
+    }
+
+    public static string FormatSrtTimestamp(TimeSpan value)
+    {
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{(int)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00},{value.Milliseconds:000}");
     }
 
     private static bool TryParseTimingLine(string line, out TimeSpan start, out TimeSpan end)
@@ -185,6 +221,15 @@ public static class SubtitleParser
     private static string NormalizeCueText(string text)
     {
         return NormalizeLineEndings(text).Trim();
+    }
+
+    private static string CreateCueId(int index, TimeSpan start, TimeSpan end, string text)
+    {
+        var source = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{index}|{start.Ticks}|{end.Ticks}|{NormalizeCueText(text)}");
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(source));
+        return "cue-" + Convert.ToHexString(hash[..8]).ToLowerInvariant();
     }
 
     private static string NormalizeLineEndings(string text)

@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <CoffeeMovieRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..'))</CoffeeMovieRoot>
+    <CoffeeMovieLocalJavaSdk>$(CoffeeMovieRoot).tools\jdk-17\jdk-17.0.19+10\</CoffeeMovieLocalJavaSdk>
+    <CoffeeMovieLocalAndroidSdk>$(CoffeeMovieRoot).tools\android-sdk\</CoffeeMovieLocalAndroidSdk>
+    <CoffeeBookRoot>$([MSBuild]::NormalizeDirectory('$(CoffeeMovieRoot)', '..', 'CoffeeBook', 'COFFEEBOOK'))</CoffeeBookRoot>
+    <CoffeeBookLocalJavaSdk>$(CoffeeBookRoot).tools\jdk-17\jdk-17.0.19+10\</CoffeeBookLocalJavaSdk>
+    <CoffeeBookLocalAndroidSdk>$(CoffeeBookRoot).tools\android-sdk\</CoffeeBookLocalAndroidSdk>
+
+    <JavaSdkDirectory Condition="'$(JavaSdkDirectory)' == '' and Exists('$(CoffeeMovieLocalJavaSdk)bin\java.exe')">$(CoffeeMovieLocalJavaSdk)</JavaSdkDirectory>
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and Exists('$(CoffeeMovieLocalAndroidSdk)platforms')">$(CoffeeMovieLocalAndroidSdk)</AndroidSdkDirectory>
+    <JavaSdkDirectory Condition="'$(JavaSdkDirectory)' == '' and Exists('$(CoffeeBookLocalJavaSdk)bin\java.exe')">$(CoffeeBookLocalJavaSdk)</JavaSdkDirectory>
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and Exists('$(CoffeeBookLocalAndroidSdk)platforms')">$(CoffeeBookLocalAndroidSdk)</AndroidSdkDirectory>
+  </PropertyGroup>
+</Project>

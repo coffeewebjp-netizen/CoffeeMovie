@@ -7,7 +7,10 @@
         MinWidth="980"
         MinHeight="620"
         Background="#05070B"
-        Foreground="White">
+        Foreground="White"
+        AllowDrop="True"
+        DragOver="OnWindowDragOver"
+        Drop="OnWindowDrop">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -22,6 +25,7 @@
                     <TextBlock Text="動画と字幕を取り込み、モバイル用のシーン情報を準備します" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="タグ管理" Click="OnManageTagsClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                     <Button Content="動画を追加" Click="OnImportVideoClicked" />
                     <Button Content="更新" Click="OnRefreshClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                 </StackPanel>
@@ -66,11 +70,14 @@
             </Border>
 
             <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8">
+                <TabControl>
+                    <TabItem Header="編集">
                 <Grid Margin="14">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="170" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
@@ -100,16 +107,81 @@
                             <TextBlock x:Name="SizeTextBlock" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,4,0,0" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="DualSubtitleButton"
+                                    Content="両方表示: OFF"
+                                    Click="OnToggleDualSubtitleClicked"
+                                    Background="#121A26"
+                                    Foreground="White"
+                                    BorderBrush="#27364A" />
                             <Button x:Name="PlayButton" Content="プレビュー再生" Click="OnPlayPreviewClicked" Background="#5DE0D0" />
                             <Button x:Name="StopButton" Content="停止" Click="OnStopPreviewClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                         </StackPanel>
                     </Grid>
 
                     <Border Grid.Row="2" Background="Black" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6">
-                        <MediaElement x:Name="PreviewPlayer" LoadedBehavior="Manual" UnloadedBehavior="Manual" Stretch="Uniform" />
+                        <Grid ClipToBounds="True">
+                            <MediaElement x:Name="PreviewPlayer"
+                                          LoadedBehavior="Manual"
+                                          UnloadedBehavior="Manual"
+                                          ScrubbingEnabled="True"
+                                          Stretch="Uniform"
+                                          MediaOpened="OnPreviewMediaOpened"
+                                          MediaEnded="OnPreviewMediaEnded" />
+                            <Border x:Name="PreviewSubtitleOverlay"
+                                    Visibility="Collapsed"
+                                    Background="#B0000000"
+                                    CornerRadius="6"
+                                    Padding="12,7"
+                                    Margin="36,0,36,14"
+                                    VerticalAlignment="Bottom"
+                                    HorizontalAlignment="Stretch"
+                                    MouseLeftButtonUp="OnPreviewSubtitleClicked">
+                                <StackPanel>
+                                    <TextBlock x:Name="PreviewSubtitlePrimaryTextBlock"
+                                               Foreground="White"
+                                               FontSize="18"
+                                               FontWeight="SemiBold"
+                                               TextAlignment="Center"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock x:Name="PreviewSubtitleSecondaryTextBlock"
+                                               Visibility="Collapsed"
+                                               Foreground="#E0E7F0"
+                                               FontSize="15"
+                                               TextAlignment="Center"
+                                               TextWrapping="Wrap"
+                                               Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
                     </Border>
 
-                    <Grid Grid.Row="3" Margin="0,12,0,0">
+                    <Grid Grid.Row="3" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="96" />
+                        </Grid.ColumnDefinitions>
+                        <Slider x:Name="PreviewSeekSlider"
+                                Minimum="0"
+                                Maximum="0"
+                                Value="0"
+                                IsEnabled="False"
+                                IsMoveToPointEnabled="True"
+                                VerticalAlignment="Center"
+                                PreviewMouseLeftButtonDown="OnPreviewSeekStarted"
+                                PreviewMouseLeftButtonUp="OnPreviewSeekCompleted"
+                                KeyUp="OnPreviewSeekKeyUp"
+                                ValueChanged="OnPreviewSeekValueChanged" />
+                        <TextBlock x:Name="PreviewPositionTextBlock"
+                                   Grid.Column="1"
+                                   Text="00:00 / 00:00"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   FontSize="12"
+                                   TextAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   Margin="12,0,0,0" />
+                    </Grid>
+
+                    <Grid Grid.Row="4" Margin="0,12,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="360" />
                             <ColumnDefinition Width="12" />
@@ -117,28 +189,366 @@
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="字幕" FontWeight="SemiBold" Margin="0,0,0,8" />
-                        <TextBlock Grid.Row="0" Grid.Column="2" Text="字幕シーン" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <Grid Grid.Row="0" Grid.Column="2" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="字幕シーン" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1"
+                                       Text="タグ色"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,6,0" />
+                            <ComboBox x:Name="HighlightColorComboBox"
+                                      Grid.Column="2"
+                                      Width="82"
+                                      SelectedValuePath="Tag"
+                                      SelectionChanged="OnHighlightColorChanged"
+                                      Margin="0,0,12,0">
+                                <ComboBoxItem Content="黄" Tag="#F6C945" />
+                                <ComboBoxItem Content="青" Tag="#5DADEC" />
+                                <ComboBoxItem Content="緑" Tag="#7BD88F" />
+                                <ComboBoxItem Content="桃" Tag="#FF8FB3" />
+                            </ComboBox>
+                            <CheckBox x:Name="FlaggedOnlyCheckBox"
+                                      Grid.Column="3"
+                                      Content="flagタグのみ"
+                                      Foreground="White"
+                                      VerticalAlignment="Center"
+                                      Margin="0,0,12,0"
+                                      Checked="OnFlaggedOnlyChanged"
+                                      Unchecked="OnFlaggedOnlyChanged" />
+                            <Button x:Name="PlayFlaggedButton"
+                                    Grid.Column="4"
+                                    Content="次のflag再生"
+                                    Click="OnPlayNextFlaggedCueClicked"
+                                    Background="#121A26"
+                                    Foreground="White"
+                                    BorderBrush="#27364A" />
+                        </Grid>
 
-                        <DataGrid x:Name="SubtitlesDataGrid" Grid.Row="1" Grid.Column="0">
+                        <StackPanel Grid.Row="1"
+                                    Grid.Column="2"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Margin="0,0,0,8">
+                            <TextBlock Text="タイミング"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0" />
+                            <Button Content="開始=現在"
+                                    Click="OnSetSelectedCueStartFromPreviewClicked"
+                                    Background="#121A26"
+                                    Foreground="White"
+                                    BorderBrush="#27364A" />
+                            <Button Content="終了=現在"
+                                    Click="OnSetSelectedCueEndFromPreviewClicked"
+                                    Background="#121A26"
+                                    Foreground="White"
+                                    BorderBrush="#27364A" />
+                            <Button Content="早める"
+                                    Click="OnShiftSelectedCueEarlierClicked"
+                                    Background="#121A26"
+                                    Foreground="White"
+                                    BorderBrush="#27364A" />
+                            <TextBox x:Name="TimingShiftTextBox"
+                                     Width="58"
+                                     Text="100"
+                                     TextAlignment="Right"
+                                     Margin="0,0,4,0" />
+                            <TextBlock Text="ms"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0" />
+                            <Button Content="遅らせる"
+                                    Click="OnShiftSelectedCueLaterClicked"
+                                    Background="#121A26"
+                                    Foreground="White"
+                                    BorderBrush="#27364A" />
+                            <CheckBox x:Name="SyncPairedSubtitleCheckBox"
+                                      Content="英日同期"
+                                      IsChecked="True"
+                                      Foreground="White"
+                                      VerticalAlignment="Center"
+                                      Margin="4,0,12,0" />
+                            <CheckBox x:Name="OriginalSubtitleWriteBackCheckBox"
+                                      Content="原本にも反映"
+                                      IsChecked="True"
+                                      Foreground="White"
+                                      VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <Button x:Name="RemoveSubtitleButton"
+                                Grid.Row="0"
+                                Grid.Column="0"
+                                Content="削除"
+                                HorizontalAlignment="Right"
+                                Margin="0,0,0,8"
+                                Click="OnRemoveSubtitleClicked"
+                                Background="#121A26"
+                                Foreground="White"
+                                BorderBrush="#27364A" />
+
+                        <DataGrid x:Name="SubtitlesDataGrid"
+                                  Grid.Row="1"
+                                  Grid.RowSpan="2"
+                                  Grid.Column="0"
+                                  SelectionMode="Single"
+                                  SelectionChanged="OnSubtitleSelectionChanged">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Label" Binding="{Binding Label}" Width="*" />
+                                <DataGridTextColumn Header="Lang" Binding="{Binding Language}" Width="55" />
+                                <DataGridTextColumn Header="Role" Binding="{Binding Role}" Width="110" />
                                 <DataGridTextColumn Header="形式" Binding="{Binding Format}" Width="80" />
                                 <DataGridTextColumn Header="Cue" Binding="{Binding CueCount}" Width="70" />
                             </DataGrid.Columns>
                         </DataGrid>
 
-                        <DataGrid x:Name="ScenesDataGrid" Grid.Row="1" Grid.Column="2">
+                        <DataGrid x:Name="ScenesDataGrid"
+                                  Grid.Row="2"
+                                  Grid.Column="2"
+                                  IsReadOnly="False"
+                                  MouseDoubleClick="OnSceneMouseDoubleClick"
+                                  CurrentCellChanged="OnSceneCurrentCellChanged"
+                                  CellEditEnding="OnSceneCellEditEnding">
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow">
+                                    <Setter Property="Background" Value="{Binding RowBackgroundBrush}" />
+                                    <Setter Property="Foreground" Value="White" />
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="#152235" />
+                                            <Setter Property="Foreground" Value="White" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Background" Value="#173447" />
+                                            <Setter Property="Foreground" Value="White" />
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.RowStyle>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="90" />
-                                <DataGridTextColumn Header="Text" Binding="{Binding Label}" Width="*" />
+                                <DataGridCheckBoxColumn Header="flag" Binding="{Binding IsFlagged, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="55" />
+                                <DataGridTextColumn Header="Start" Binding="{Binding Timestamp, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="92" />
+                                <DataGridTextColumn Header="End" Binding="{Binding EndTimestamp, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="92" />
+                                <DataGridTextColumn Header="Text" Binding="{Binding Label}" Width="*" IsReadOnly="True" />
+                                <DataGridTextColumn Header="Listen" Binding="{Binding ListeningAccuracy}" Width="70" IsReadOnly="True" />
+                                <DataGridTextColumn Header="Shadow" Binding="{Binding ShadowingAccuracy}" Width="78" IsReadOnly="True" />
+                                <DataGridTextColumn Header="Tags" Binding="{Binding Tags, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="120" />
+                                <DataGridTextColumn Header="Note" Binding="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="160" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </Grid>
                 </Grid>
+                    </TabItem>
+                    <TabItem Header="字幕生成">
+                        <Grid Margin="16">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0">
+                                <TextBlock Text="対象動画" Foreground="{StaticResource MutedBrush}" FontSize="12" />
+                                <TextBlock x:Name="GenerationMovieTextBlock"
+                                           Text="動画を選択してください"
+                                           FontSize="16"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           Margin="0,4,0,0" />
+                            </StackPanel>
+
+                            <Grid Grid.Row="1" Margin="0,16,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="100" />
+                                    <ColumnDefinition Width="140" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Pythonコマンド" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                                <TextBox x:Name="WhisperPythonCommandTextBox" Grid.Row="0" Grid.Column="1" Text="py" Margin="0,0,12,8" />
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="実行引数" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                                <TextBox x:Name="WhisperPythonArgumentsTextBox" Grid.Row="0" Grid.Column="3" Grid.ColumnSpan="3" Text="-3.10 -m whisperx" Margin="0,0,0,8" />
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="出力先" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                                <TextBox x:Name="WhisperOutputDirectoryTextBox" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,8,8" />
+                                <Button x:Name="BrowseWhisperOutputDirectoryButton"
+                                        Grid.Row="1"
+                                        Grid.Column="4"
+                                        Content="参照"
+                                        Click="OnBrowseWhisperOutputDirectoryClicked"
+                                        Background="#121A26"
+                                        Foreground="White"
+                                        BorderBrush="#27364A" />
+                                <Button x:Name="SaveWhisperDefaultsButton"
+                                        Grid.Row="1"
+                                        Grid.Column="5"
+                                        Content="既定に設定"
+                                        Click="OnSaveWhisperDefaultsClicked"
+                                        Background="#121A26"
+                                        Foreground="White"
+                                        BorderBrush="#27364A" />
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Model" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                                <TextBox x:Name="WhisperModelTextBox" Grid.Row="2" Grid.Column="1" Text="medium" Margin="0,0,12,8" />
+                                <TextBlock Grid.Row="2" Grid.Column="2" Text="Language" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                                <TextBox x:Name="WhisperLanguageTextBox" Grid.Row="2" Grid.Column="3" Grid.ColumnSpan="3" Text="en" Margin="0,0,0,8" />
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Device" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <ComboBox x:Name="WhisperDeviceComboBox" Grid.Row="3" Grid.Column="1" SelectedIndex="0" Margin="0,0,12,0">
+                                    <ComboBoxItem Content="cuda" />
+                                    <ComboBoxItem Content="cpu" />
+                                </ComboBox>
+                                <TextBlock Grid.Row="3" Grid.Column="2" Text="Compute" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <ComboBox x:Name="WhisperComputeTypeComboBox" Grid.Row="3" Grid.Column="3" SelectedIndex="0" Margin="0,0,12,0">
+                                    <ComboBoxItem Content="float16" />
+                                    <ComboBoxItem Content="float32" />
+                                    <ComboBoxItem Content="int8" />
+                                </ComboBox>
+                                <TextBlock Grid.Row="3"
+                                           Grid.Column="4"
+                                           Grid.ColumnSpan="2"
+                                           Text="cuda=GPU / cpu=CPU。float16はGPU向け、float32は標準、int8は軽量。"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="4"
+                                           Grid.Column="1"
+                                           Grid.ColumnSpan="5"
+                                           Text="Pythonコマンドと実行引数はWhisperX環境を選ぶための詳細設定です。通常は py / -3.10 -m whisperx のままでOKです。日本語訳生成はまだ未接続です。"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Margin="0,8,0,0" />
+                            </Grid>
+
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,16,0,12">
+                                <Button x:Name="GenerateEnglishSubtitleButton"
+                                        Content="英語字幕を生成"
+                                        Click="OnGenerateEnglishSubtitleClicked" />
+                                <CheckBox x:Name="OverwriteGeneratedSubtitleCheckBox"
+                                          Content="既存.en.srtを退避して再生成"
+                                          Foreground="White"
+                                          VerticalAlignment="Center"
+                                          Margin="4,0,0,0" />
+                            </StackPanel>
+
+                            <TextBox x:Name="SubtitleGenerationLogTextBox"
+                                     Grid.Row="3"
+                                     TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     FontFamily="Consolas"
+                                     FontSize="12" />
+                        </Grid>
+                    </TabItem>
+                    <TabItem Header="フルプレビュー">
+                        <Grid Margin="14">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <Border Grid.Row="0" Background="Black" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6">
+                                <Grid ClipToBounds="True">
+                                    <MediaElement x:Name="FullPreviewPlayer"
+                                                  LoadedBehavior="Manual"
+                                                  UnloadedBehavior="Manual"
+                                                  ScrubbingEnabled="True"
+                                                  Stretch="Uniform"
+                                                  MediaOpened="OnFullPreviewMediaOpened"
+                                                  MediaEnded="OnFullPreviewMediaEnded" />
+                                    <Border x:Name="FullPreviewSubtitleOverlay"
+                                            Visibility="Collapsed"
+                                            Background="#B0000000"
+                                            CornerRadius="6"
+                                            Padding="18,10"
+                                            Margin="56,0,56,28"
+                                            VerticalAlignment="Bottom"
+                                            HorizontalAlignment="Stretch">
+                                        <StackPanel>
+                                            <TextBlock x:Name="FullPreviewSubtitlePrimaryTextBlock"
+                                                       Foreground="White"
+                                                       FontSize="26"
+                                                       FontWeight="SemiBold"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock x:Name="FullPreviewSubtitleSecondaryTextBlock"
+                                                       Visibility="Collapsed"
+                                                       Foreground="#E0E7F0"
+                                                       FontSize="20"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Margin="0,6,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </Border>
+
+                            <Grid Grid.Row="1" Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="108" />
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="FullPreviewPlayButton"
+                                        Grid.Column="0"
+                                        Content="再生"
+                                        Click="OnFullPreviewPlayClicked" />
+                                <Button x:Name="FullPreviewStopButton"
+                                        Grid.Column="1"
+                                        Content="停止"
+                                        Click="OnFullPreviewStopClicked"
+                                        Background="#121A26"
+                                        Foreground="White"
+                                        BorderBrush="#27364A" />
+                                <Slider x:Name="FullPreviewSeekSlider"
+                                        Grid.Column="2"
+                                        Minimum="0"
+                                        Maximum="1"
+                                        Value="0"
+                                        IsEnabled="False"
+                                        IsMoveToPointEnabled="True"
+                                        VerticalAlignment="Center"
+                                        PreviewMouseLeftButtonDown="OnFullPreviewSeekStarted"
+                                        PreviewMouseLeftButtonUp="OnFullPreviewSeekCompleted"
+                                        KeyUp="OnFullPreviewSeekKeyUp"
+                                        ValueChanged="OnFullPreviewSeekValueChanged" />
+                                <TextBlock x:Name="FullPreviewPositionTextBlock"
+                                           Grid.Column="3"
+                                           Text="00:00 / 00:00"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           FontSize="12"
+                                           TextAlignment="Right"
+                                           VerticalAlignment="Center"
+                                           Margin="12,0,0,0" />
+                            </Grid>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
             </Border>
         </Grid>
 

@@ -22,9 +22,16 @@ if ([string]::IsNullOrWhiteSpace($KeytoolPath)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($KeytoolPath)) {
-    $coffeeBookJdk = Join-Path $repoRoot "..\CoffeeBook\.tools\jdk-17\jdk-17.0.19+10\bin\keytool.exe"
-    if (Test-Path -LiteralPath $coffeeBookJdk) {
-        $KeytoolPath = (Resolve-Path $coffeeBookJdk).Path
+    $coffeeBookJdkCandidates = @(
+        (Join-Path $repoRoot "..\CoffeeBook\COFFEEBOOK\.tools\jdk-17\jdk-17.0.19+10\bin\keytool.exe"),
+        (Join-Path $repoRoot "..\CoffeeBook\.tools\jdk-17\jdk-17.0.19+10\bin\keytool.exe")
+    )
+
+    foreach ($candidate in $coffeeBookJdkCandidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            $KeytoolPath = (Resolve-Path $candidate).Path
+            break
+        }
     }
 }
 

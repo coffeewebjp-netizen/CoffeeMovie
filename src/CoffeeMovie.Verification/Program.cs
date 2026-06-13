@@ -20,9 +20,22 @@ Assert(document.Cues[1].Start == TimeSpan.FromSeconds(70.5), "Second cue start s
 var webVtt = SubtitleParser.ToWebVtt(document.Cues);
 Assert(webVtt.StartsWith("WEBVTT", StringComparison.Ordinal), "Converted subtitle should be WebVTT.");
 
+var rewrittenSrt = SubtitleParser.ToSrt(document.Cues);
+Assert(rewrittenSrt.Contains("00:01:10,500 --> 00:01:12,000", StringComparison.Ordinal), "SRT rewrite should keep comma milliseconds.");
+
 var reparsed = SubtitleParser.Parse(webVtt, "sample.vtt");
 Assert(reparsed.Format == SubtitleFormat.WebVtt, "WebVTT format should be detected.");
 Assert(reparsed.Cues.Count == 2, "Converted WebVTT cue count should remain 2.");
+
+var englishMetadata = SubtitleFileMetadataService.Infer("sample.en.srt");
+Assert(englishMetadata.Language == "en", "English subtitle language should be inferred from .en suffix.");
+Assert(englishMetadata.Role == SubtitleTrackRole.LearningTarget, "English subtitles should default to learning target role.");
+Assert(englishMetadata.GroupKey == "sample", "Subtitle group key should remove language suffix.");
+
+var japaneseMetadata = SubtitleFileMetadataService.Infer("sample.ja.srt");
+Assert(japaneseMetadata.Language == "ja", "Japanese subtitle language should be inferred from .ja suffix.");
+Assert(japaneseMetadata.Role == SubtitleTrackRole.Translation, "Japanese subtitles should default to translation role.");
+Assert(japaneseMetadata.GroupKey == "sample", "Japanese subtitle group key should match English subtitle group key.");
 
 var root = Path.Combine(Path.GetTempPath(), "coffee-movie-verification-" + Guid.NewGuid().ToString("N"));
 var cache = Path.Combine(Path.GetTempPath(), "coffee-movie-cache-" + Guid.NewGuid().ToString("N"));
