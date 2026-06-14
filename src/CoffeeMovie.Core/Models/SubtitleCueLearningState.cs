@@ -12,6 +12,8 @@ public sealed class SubtitleCueLearningState
 
     public string? Note { get; set; }
 
+    public string? AiNote { get; set; }
+
     public CuePracticeMetric Listening { get; set; } = new();
 
     public CuePracticeMetric Shadowing { get; set; } = new();

@@ -6,10 +6,20 @@ namespace CoffeeMovie.Reader;
 public sealed class App : Application
 {
     private readonly ReaderLibraryService _libraryService;
+    private readonly GoogleDriveSyncService _googleDriveSyncService;
+    private readonly ReaderSyncSettingsService _syncSettingsService;
+    private readonly ISpeechRecognitionService _speechRecognitionService;
 
-    public App(ReaderLibraryService libraryService)
+    public App(
+        ReaderLibraryService libraryService,
+        GoogleDriveSyncService googleDriveSyncService,
+        ReaderSyncSettingsService syncSettingsService,
+        ISpeechRecognitionService speechRecognitionService)
     {
         _libraryService = libraryService;
+        _googleDriveSyncService = googleDriveSyncService;
+        _syncSettingsService = syncSettingsService;
+        _speechRecognitionService = speechRecognitionService;
         UserAppTheme = AppTheme.Dark;
     }
 
@@ -17,7 +27,11 @@ public sealed class App : Application
     {
         try
         {
-            var rootPage = new NavigationPage(new MovieShelfPage(_libraryService))
+            var rootPage = new NavigationPage(new MovieShelfPage(
+                _libraryService,
+                _googleDriveSyncService,
+                _syncSettingsService,
+                _speechRecognitionService))
             {
                 BarBackgroundColor = Color.FromArgb("#05070B"),
                 BarTextColor = Colors.White

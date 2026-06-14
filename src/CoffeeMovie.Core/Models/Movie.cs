@@ -18,6 +18,18 @@ public sealed class Movie
 
     public PlaybackState Playback { get; set; } = new();
 
+    public string? SourcePackageUri { get; set; }
+
+    public string? SourcePackageName { get; set; }
+
+    public long? SourcePackageLastModified { get; set; }
+
+    public long? SourcePackageSize { get; set; }
+
+    public DateTimeOffset? SourceMovieUpdatedAt { get; set; }
+
+    public string? SourceContentFingerprint { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

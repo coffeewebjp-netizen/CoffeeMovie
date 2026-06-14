@@ -13,13 +13,13 @@ src/
 
 ## Reader Flow
 
-1. User imports a video with the Android file picker.
-2. The reader copies the video into app data and adds a movie record.
-3. User opens the movie.
-4. User imports an SRT or WebVTT subtitle.
-5. The subtitle is parsed, converted to WebVTT if needed, and saved.
-6. The player loads local video and local WebVTT through a WebView-backed HTML5 video surface.
-7. Subtitle cues are shown as jump targets.
+1. User configures Google Drive or imports local video/subtitle files for testing.
+2. Drive sync lists `.coffeemovie` packages and paired `.coffeemovie.json` sidecars from the configured folder.
+3. Reader downloads sidecars first and compares `contentFingerprint` with local `SourceContentFingerprint`.
+4. Unchanged sidecars are counted as unchanged; changed sidecars update the local movie shell.
+5. Large package bytes are downloaded only when the local video cache is missing or an updated package is explicitly needed.
+6. The player loads local video through a WebView-backed HTML5 video surface.
+7. The custom overlay renders English subtitles, Japanese subtitles, AI/user memo lines, and shadowing feedback independently.
 
 ## Studio Flow
 
@@ -38,9 +38,16 @@ The full-size preview tab reuses the same subtitle-line selection logic as the e
 
 ## Drive Flow
 
-Drive sync is planned as a Reader service because Android owns the cache and authentication state. Storage remains platform-neutral and only exposes cache index and JSON helpers.
+Drive sync is implemented as a Reader service because Android owns the cache and authentication state. Storage remains platform-neutral and exposes package, sidecar, cache-index, and JSON helpers.
 
-Studio can export `.coffeemovie.json` sidecars beside a video or into a Drive sync folder. Reader-side Drive sync should prefer those sidecars before downloading large video files.
+Studio exports a Drive-ready pair:
+
+1. `.coffeemovie`: ZIP package containing `manifest.json`, video bytes, and subtitle files.
+2. `.coffeemovie.json`: small sidecar containing the same comparison metadata, subtitle cues, and learning states.
+
+Studio computes a `contentFingerprint` before export. If the existing sidecar in the configured Drive sync folder has the same fingerprint and the package file exists, Studio skips the write. If the fingerprint differs, Studio rewrites both package and sidecar and updates `exportedAt`.
+
+Reader refreshes sidecars during sync, compares the incoming fingerprint to the local `SourceContentFingerprint`, and separates results into added/updated and unchanged. Video cache is kept only when the incoming video metadata describes the same video asset.
 
 ## Why WebVTT
 
@@ -68,9 +75,27 @@ Imported video
   -> Studio imports both tracks with the same groupKey
 ```
 
-The first practical runner can call the existing WhisperX Python environment (`py -3.10 -m whisperx`). Japanese translation should use a provider-neutral adapter so an AI agent, API, or manual script can be swapped without changing the CoffeeMovie library format.
+The first practical runner can call the existing WhisperX Python environment (`py -3.10 -m whisperx`). Japanese translation uses a provider-neutral external command adapter so an AI agent, API, or manual script can be swapped without changing the CoffeeMovie library format.
 
-Studio now implements the first slice of this job model for English subtitle extraction. The `字幕生成` tab runs WhisperX as an external process for the selected movie, normalizes the output to `.en.srt`, and imports that file through the same subtitle import path used by manual drag/drop. Translation remains a separate runner boundary.
+Studio implements both runner boundaries in the `字幕生成` tab:
+
+1. WhisperX runs as an external process for the selected movie, normalizes the output to `.en.srt`, and imports that file through the same subtitle import path used by manual drag/drop.
+2. Translation runs as a configurable external AI-AGENT command, receives an English SRT path, writes a Japanese SRT path, and then imports that `.ja.srt` through the same subtitle import path.
+
+The translation adapter expands these placeholders before launching the external command:
+
+- `{input}`: English SRT path
+- `{output}`: Japanese SRT path that the agent must create
+- `{inputDir}`: English SRT directory
+- `{outputDir}`: Japanese SRT output directory
+- `{promptFile}`: generated prompt file path
+- `{prompt}`: prompt text, mainly for agents that accept inline prompts
+- `{source}`: source language, normally `en`
+- `{target}`: target language, normally `ja`
+- `{movie}`: selected video path
+- `{title}`: CoffeeMovie movie title
+
+Before launching the command, Studio writes the current translation prompt to `{promptFile}`. The built-in base prompt follows the successful anime subtitle skill routine: keep timestamps stable, translate only subtitle text, avoid direct machine translation, infer the work's world and character voices, and output valid SRT only. Users can edit this prompt and reset it back to the base version. The default `codex-spark` command is a Studio preset: if no standalone `codex-spark` executable is configured, Studio resolves it to the local Codex CLI and runs `codex exec` as the translation agent. After the command exits successfully, Studio verifies that `{output}` exists and can be parsed as a subtitle file. CoffeeMovie does not store provider credentials or agent-specific state in the library.
 
 Implemented generation settings are intentionally stored as Studio preferences instead of core movie data:
 
@@ -81,5 +106,15 @@ Implemented generation settings are intentionally stored as Studio preferences i
 - source language
 - device, usually `cuda` or `cpu`
 - compute type, such as `float16`, `float32`, or `int8`
+- translation command
+- translation argument template
+- translation source and target languages
+- translation prompt override
 
-This keeps the library portable while still allowing each workstation to point Studio at its own WhisperX environment.
+This keeps the library portable while still allowing each workstation to point Studio at its own WhisperX and AI translation environments.
+
+## Thumbnail Flow
+
+Studio can capture a thumbnail from the current preview position. The current implementation shells out to `ffmpeg`, saves a JPEG under `thumbnail-cache`, stores the path and timestamp on `VideoAsset`, and shows the image in the Studio movie shelf. Studio can replay the saved thumbnail timestamp for five seconds to verify the chosen scene.
+
+The sidecar currently exports the thumbnail file name and timestamp. Android Reader preserves the timestamp metadata, but thumbnail image display in Reader is still a later step.

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -19,6 +20,96 @@ namespace CoffeeMovie.Studio;
 public partial class MainWindow
 {
     private const string FlagTagName = "flag";
+    private const string DefaultTranslationCommand = "codex-spark";
+    private const string DefaultCodexSparkModel = "gpt-5.3-codex-spark";
+    private const string DefaultEnglishSubtitleOverlayPosition = "below2";
+    private const string DefaultJapaneseSubtitleOverlayPosition = "below1";
+    private const string DefaultAiNoteOverlayPosition = "above1";
+    private const string DefaultUserNoteOverlayPosition = "above2";
+    private const string DefaultLearningNotesAudienceLevel = "B1";
+    private const string DefaultTranslationArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{inputDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, translate {input}, and write the Japanese SRT to {output}.\"";
+    private const string DefaultLearningNotesArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{inputDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, analyze {input}, and write learning notes JSON to {notesOutput}.\"";
+    private const string DefaultTranslationPrompt = """
+あなたはアニメ英語字幕を日本語字幕へ翻訳する専門エージェントです。
+
+目的:
+- 英語SRT `{input}` を読み、自然で作品世界に合う日本語SRTを `{output}` に書き出してください。
+- source language: `{source}`
+- target language: `{target}`
+- movie title: `{title}`
+
+絶対条件:
+- SRTの番号、順番、開始時刻、終了時刻を変更しないでください。
+- キュー数を増減しないでください。
+- 出力は有効なSRT本文だけにしてください。Markdown、説明、注釈、コードブロックは禁止です。
+- タイムスタンプは入力SRTのものをそのまま使ってください。
+- 英語本文だけを日本語へ置き換えてください。
+- `{input}` と `{output}` が相対パスの場合は現在の作業フォルダ基準で扱い、絶対パスへ変換しないでください。
+
+翻訳方針:
+- 機械的な直訳ではなく、日本の視聴者が字幕として自然に読める表現へ意訳してください。
+- 作品の世界観を推定してください。ファンタジー、現代劇、SFなどに合う語彙を選んでください。
+- キャラクターの口調を文脈から判断し、セリフへ反映してください。
+- 英語のイディオム、スラング、皮肉、冗談は直訳せず、意味と感情が伝わる日本語へ変換してください。
+- 固有名詞、魔法名、地名、組織名は一貫させてください。判断できない場合は自然なカタカナまたは原語維持を選んでください。
+- 字幕として読みやすい長さを意識し、冗長な説明を避けてください。
+
+品質基準:
+- 会話として自然であること。
+- キャラクターの距離感、年齢感、敬語/ため口が破綻しないこと。
+- 原文の意味を削りすぎず、字幕としてテンポよく読めること。
+- 各キューの日本語が、そのタイムスタンプ内で読める長さであること。
+""";
+    private const string DefaultLearningNotesPrompt = """
+あなたは英語学習者向けにアニメ英語字幕を分析する専門エージェントです。
+
+目的:
+- 英語SRT `{input}` を読み、対象レベル `{audienceLevel}` の学習者に本当に役立つ学習メモを `{notesOutput}` にJSONで書き出してください。
+- movie title: `{title}`
+- source language: `{source}`
+- audience level: `{audienceLevel}`
+
+出力形式:
+- `{notesOutput}` には有効なUTF-8 JSONだけを書いてください。Markdown、説明、コードブロックは禁止です。
+- ルートは配列にしてください。
+- 入力SRTの各キューにつき1オブジェクトを出力してください。
+- `index` はSRT番号と同じ整数にしてください。
+- `cefr` は `A1`, `A2`, `B1`, `B2`, `C1`, `C2` のいずれかにしてください。
+- `note` は必ず文字列で埋めてください。重要でないキューは `CEFR {level}: コメント不要（対象者レベル以下の通常表現）` のように短く書いてください。
+- 重要なキューの `note` は日本語で100文字以内にしてください。
+
+JSONスキーマ:
+[
+  {
+    "index": 1,
+    "cefr": "B1",
+    "note": "CEFR B1: 語彙 'dissipate'=魔力が散る。魔法説明で再登場しやすい世界観語。"
+  },
+  {
+    "index": 2,
+    "cefr": "A1",
+    "note": "CEFR A1: コメント不要（対象者レベル以下の通常表現）"
+  }
+]
+
+分析方針:
+- 学習者の対象レベルは `{audienceLevel}` です。対象レベル未満の普通の挨拶、短い相づち、固有名詞だけの行はコメント不要マーカーにしてください。
+- 対象レベル以上の語彙・構文・慣用句・口語、または対象レベル未満でも作品理解や今後の読解に効く特殊表現があるキューだけ実質的なnoteを書いてください。
+- 世界観ならではの語彙、魔法/戦闘/宗教/旅/師弟関係などのジャンル語、キャラクターの口調が出る言い回しを優先してください。
+- `Hello`, `Yes`, `Okay`, `No`, `Apple` のような基礎語や一語返答は、特殊なニュアンスがない限り解説しないでください。
+- noteの先頭に `CEFR {level}:` を含め、続けて `語彙:`, `構文:`, `慣用句:`, `口語:`, `世界観:` など要点が分かるラベルを入れてください。
+- 各noteは必ずそのキュー固有の内容にしてください。汎用テンプレートの反復は禁止です。
+- `$k`, `{word}`, `{level}`, `など抽象語`, `基本表現` のような未展開テンプレートや曖昧な定型句をnoteに書かないでください。
+- コメント不要ではないnoteには、そのキュー本文に実在する英単語または英語フレーズを1つ引用してください。別キューの語句を書かないでください。
+- B1以上に上げている語彙、文脈、構文、慣用句がある場合は、該当する英単語や英語フレーズを必ず明記してください。
+- CEFRとは別に、よく使うスラング、口語表現、慣用句があれば `スラング:`、`口語:`、`慣用句:` のように示してください。
+- ローマ字歌詞、固有名詞だけ、英語学習対象外に近いキューは原則コメント不要マーカーにしてください。
+- 実質的なnoteは全体の15%-35%を目安にしてください。密度が高い場面でも半分以上のキューに実質noteを書かないでください。
+- 同じnote文を大量に使い回さないでください。似たキューでも、該当語句と理由を変えてください。
+- 推測用のスクリプトや簡易分類で作らず、SRT本文を読んで各キューを個別に判断してください。
+- セリフ本文、番号、時刻は変更しないでください。字幕ファイルを書き換えないでください。
+- `{input}` と `{notesOutput}` が相対パスの場合は現在の作業フォルダ基準で扱い、絶対パスへ変換しないでください。
+""";
 
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -38,6 +129,7 @@ public partial class MainWindow
 
     private readonly CoffeeMoviePaths _paths;
     private readonly MovieLibraryStore _libraryStore;
+    private readonly CoffeeMoviePackageService _packageService = new();
     private readonly ObservableCollection<MovieListItem> _movies = [];
     private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private Movie? _selectedMovie;
@@ -45,15 +137,23 @@ public partial class MainWindow
     private SubtitleCue? _currentPreviewCue;
     private string _subtitleTagHighlightColor = "#F6C945";
     private bool _showDualSubtitles;
+    private bool _showLearningNotes;
+    private string _englishSubtitleOverlayPosition = DefaultEnglishSubtitleOverlayPosition;
+    private string _japaneseSubtitleOverlayPosition = DefaultJapaneseSubtitleOverlayPosition;
+    private string _aiNoteOverlayPosition = DefaultAiNoteOverlayPosition;
+    private string _userNoteOverlayPosition = DefaultUserNoteOverlayPosition;
     private TimeSpan _previewDuration = TimeSpan.Zero;
     private TimeSpan? _pendingPreviewSeek;
     private bool _isPreviewMediaOpened;
     private bool _playPreviewWhenMediaOpened;
+    private bool _isPreviewPlaying;
     private bool _isPreviewSeeking;
+    private TimeSpan? _previewStopAt;
     private TimeSpan _fullPreviewDuration = TimeSpan.Zero;
     private TimeSpan? _pendingFullPreviewSeek;
     private bool _isFullPreviewMediaOpened;
     private bool _playFullPreviewWhenMediaOpened;
+    private bool _isFullPreviewPlaying;
     private bool _isFullPreviewSeeking;
     private bool _isUpdatingFullPreviewSlider;
     private bool _isSubtitleGenerationRunning;
@@ -219,12 +319,175 @@ public partial class MainWindow
         }
     }
 
+    private async void OnExportDrivePackageClicked(object sender, RoutedEventArgs e)
+    {
+        if (_selectedMovie is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var driveRootPath = await GetOrChooseDriveRootPathAsync();
+            if (string.IsNullOrWhiteSpace(driveRootPath))
+            {
+                return;
+            }
+
+            SetStatus("スマホ用パッケージを書き出しています...");
+            ExportDrivePackageButton.IsEnabled = false;
+            var progress = new Progress<CoffeeMoviePackageExportProgress>(SetPackageExportProgress);
+            var result = await _packageService.ExportReaderPackageAsync(_selectedMovie, driveRootPath, progress);
+            if (result.Skipped)
+            {
+                SetStatus(
+                    $"差分なしのため書き出しをスキップしました: {Path.GetFileName(result.PackagePath)}",
+                    hideProgress: false);
+                return;
+            }
+
+            SetStatus(
+                $"スマホ用パッケージを書き出しました: {Path.GetFileName(result.PackagePath)} / {Path.GetFileName(result.SidecarPath)}",
+                hideProgress: false);
+        }
+        catch (Exception ex)
+        {
+            ShowError("スマホ用パッケージの書き出しに失敗しました", ex);
+        }
+        finally
+        {
+            ExportDrivePackageButton.IsEnabled = _selectedMovie is not null;
+        }
+    }
+
+    private async void OnConfigureDriveSyncFolderClicked(object sender, RoutedEventArgs e)
+    {
+        var path = await GetOrChooseDriveRootPathAsync(forceChoose: true);
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            SetStatus($"Drive同期フォルダを設定しました: {path}");
+        }
+    }
+
+    private async Task<string?> GetOrChooseDriveRootPathAsync(bool forceChoose = false)
+    {
+        var library = await _libraryStore.LoadAsync();
+        var driveRootPath = library.Studio.GoogleDriveRootPath;
+        if (!forceChoose && !string.IsNullOrWhiteSpace(driveRootPath) && Directory.Exists(driveRootPath))
+        {
+            return driveRootPath;
+        }
+
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Google Drive 同期先フォルダを選択",
+            Multiselect = false
+        };
+        if (!string.IsNullOrWhiteSpace(driveRootPath) && Directory.Exists(driveRootPath))
+        {
+            dialog.InitialDirectory = driveRootPath;
+        }
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return null;
+        }
+
+        driveRootPath = dialog.FolderName;
+        Directory.CreateDirectory(driveRootPath);
+        library.Studio.GoogleDriveRootPath = driveRootPath;
+        await _libraryStore.SaveAsync(library);
+        return driveRootPath;
+    }
+
     private async void OnRefreshClicked(object sender, RoutedEventArgs e)
     {
         await RefreshMoviesAsync(_selectedMovie?.Id);
     }
 
     private async void OnGenerateEnglishSubtitleClicked(object sender, RoutedEventArgs e)
+    {
+        await RunSubtitleGenerationJobAsync(
+            "WhisperX subtitle generation started.",
+            async movie => [await GenerateEnglishSubtitleAsync(movie)],
+            "英語字幕を生成して取り込みました",
+            "英語字幕の生成に失敗しました");
+    }
+
+    private async void OnGenerateJapaneseSubtitleClicked(object sender, RoutedEventArgs e)
+    {
+        await RunSubtitleGenerationJobAsync(
+            "Japanese subtitle translation started.",
+            async movie => [await GenerateJapaneseSubtitleAsync(movie)],
+            "日本語訳字幕を生成して取り込みました",
+            "日本語訳字幕の生成に失敗しました");
+    }
+
+    private async void OnGenerateEnglishAndJapaneseSubtitleClicked(object sender, RoutedEventArgs e)
+    {
+        await RunSubtitleGenerationJobAsync(
+            "English subtitle generation and Japanese translation started.",
+            async movie =>
+            {
+                var englishPath = await GenerateEnglishSubtitleAsync(movie);
+                var japanesePath = await GenerateJapaneseSubtitleAsync(movie, englishPath);
+                return [englishPath, japanesePath];
+            },
+            "英語字幕と日本語訳字幕を生成して取り込みました",
+            "英日字幕の生成に失敗しました");
+    }
+
+    private async void OnGenerateAiNotesClicked(object sender, RoutedEventArgs e)
+    {
+        await RunLearningNotesGenerationJobAsync();
+    }
+
+    private async void OnToggleLearningNotesClicked(object sender, RoutedEventArgs e)
+    {
+        _showLearningNotes = !_showLearningNotes;
+        UpdateLearningNotesButton();
+        UpdatePreviewSubtitleAtCurrentPosition();
+        UpdateFullPreviewSubtitle(FullPreviewPlayer.Position);
+        await SaveStudioPreferencesAsync();
+    }
+
+    private async void OnOverlayPositionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingPreferences)
+        {
+            return;
+        }
+
+        ReadOverlayPositionComboBoxes();
+        UpdatePreviewSubtitleAtCurrentPosition();
+        UpdateFullPreviewSubtitle(FullPreviewPlayer.Position);
+        await SaveStudioPreferencesAsync();
+    }
+
+    private async void OnResetOverlayLayoutClicked(object sender, RoutedEventArgs e)
+    {
+        SetDefaultOverlayPositions();
+        _isUpdatingPreferences = true;
+        try
+        {
+            ApplyOverlayPositionComboBoxes();
+        }
+        finally
+        {
+            _isUpdatingPreferences = false;
+        }
+
+        UpdatePreviewSubtitleAtCurrentPosition();
+        UpdateFullPreviewSubtitle(FullPreviewPlayer.Position);
+        await SaveStudioPreferencesAsync();
+        SetStatus("表示位置を既定に戻しました。");
+    }
+
+    private async Task RunSubtitleGenerationJobAsync(
+        string startMessage,
+        Func<Movie, Task<IReadOnlyList<string>>> generateSubtitlePathsAsync,
+        string successMessage,
+        string errorTitle)
     {
         if (_isSubtitleGenerationRunning)
         {
@@ -242,18 +505,76 @@ public partial class MainWindow
             _isSubtitleGenerationRunning = true;
             SetSubtitleGenerationEnabled(false);
             SubtitleGenerationLogTextBox.Clear();
-            AppendSubtitleGenerationLog("WhisperX subtitle generation started.");
+            var startedAt = DateTimeOffset.Now;
+            SetSubtitleGenerationState("実行中");
+            SetStatus("字幕生成を実行中です。");
+            AppendSubtitleGenerationLog(startMessage);
+            AppendSubtitleGenerationLog("RUNNING: external subtitle job is active.");
 
-            var generatedPath = await GenerateEnglishSubtitleAsync(_selectedMovie);
-            AppendSubtitleGenerationLog($"Importing generated subtitle: {generatedPath}");
-            var track = await ImportSubtitleAsync(_selectedMovie, generatedPath);
+            var generatedPaths = await generateSubtitlePathsAsync(_selectedMovie);
+            var importedCueCount = 0;
+            foreach (var generatedPath in generatedPaths.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                AppendSubtitleGenerationLog($"Importing generated subtitle: {generatedPath}");
+                var track = await ImportSubtitleAsync(_selectedMovie, generatedPath);
+                importedCueCount += track.CueCount;
+                AppendSubtitleGenerationLog($"Imported {track.Label}: {track.CueCount} cues.");
+            }
+
             await RefreshMoviesAsync(_selectedMovie.Id);
-            SetStatus($"英語字幕を生成して取り込みました: {track.CueCount} cues");
-            AppendSubtitleGenerationLog($"Done: {track.CueCount} cues imported.");
+            var elapsed = DateTimeOffset.Now - startedAt;
+            SetSubtitleGenerationState($"完了 ({FormatElapsed(elapsed)})");
+            SetStatus($"{successMessage}: {importedCueCount} cues");
+            AppendSubtitleGenerationLog($"COMPLETED: {importedCueCount} cues imported in {FormatElapsed(elapsed)}.");
         }
         catch (Exception ex)
         {
-            ShowError("英語字幕の生成に失敗しました", ex);
+            SetSubtitleGenerationState("失敗");
+            ShowError(errorTitle, ex);
+            AppendSubtitleGenerationLog("ERROR: " + ex.Message);
+        }
+        finally
+        {
+            _isSubtitleGenerationRunning = false;
+            SetSubtitleGenerationEnabled(_selectedMovie is not null);
+        }
+    }
+
+    private async Task RunLearningNotesGenerationJobAsync()
+    {
+        if (_isSubtitleGenerationRunning)
+        {
+            return;
+        }
+
+        if (_selectedMovie is null)
+        {
+            SetStatus("AIメモを追加する動画を選択してください。");
+            return;
+        }
+
+        try
+        {
+            _isSubtitleGenerationRunning = true;
+            SetSubtitleGenerationEnabled(false);
+            SubtitleGenerationLogTextBox.Clear();
+            var startedAt = DateTimeOffset.Now;
+            SetSubtitleGenerationState("AIメモ実行中");
+            SetStatus("AIメモを生成中です。");
+            AppendSubtitleGenerationLog("AI learning note generation started.");
+            AppendSubtitleGenerationLog("RUNNING: external AI note job is active.");
+
+            var importedNoteCount = await GenerateLearningNotesAsync(_selectedMovie);
+            await RefreshMoviesAsync(_selectedMovie.Id);
+            var elapsed = DateTimeOffset.Now - startedAt;
+            SetSubtitleGenerationState($"完了 ({FormatElapsed(elapsed)})");
+            SetStatus($"AIメモを追加しました: {importedNoteCount} cues");
+            AppendSubtitleGenerationLog($"COMPLETED: {importedNoteCount} AI notes imported in {FormatElapsed(elapsed)}.");
+        }
+        catch (Exception ex)
+        {
+            SetSubtitleGenerationState("失敗");
+            ShowError("AIメモの追加に失敗しました", ex);
             AppendSubtitleGenerationLog("ERROR: " + ex.Message);
         }
         finally
@@ -286,11 +607,26 @@ public partial class MainWindow
         SetStatus("字幕生成の既定設定を保存しました。");
     }
 
+    private async void OnResetTranslationPromptClicked(object sender, RoutedEventArgs e)
+    {
+        TranslationPromptTextBox.Text = DefaultTranslationPrompt;
+        await SaveStudioPreferencesAsync();
+        SetStatus("翻訳プロンプトをベースに戻しました。");
+    }
+
+    private async void OnResetLearningNotesPromptClicked(object sender, RoutedEventArgs e)
+    {
+        LearningNotesPromptTextBox.Text = DefaultLearningNotesPrompt;
+        await SaveStudioPreferencesAsync();
+        SetStatus("AIメモプロンプトをベースに戻しました。");
+    }
+
     private async void OnToggleDualSubtitleClicked(object sender, RoutedEventArgs e)
     {
         _showDualSubtitles = !_showDualSubtitles;
         UpdateDualSubtitleButton();
         UpdatePreviewSubtitleAtCurrentPosition();
+        UpdateFullPreviewSubtitle(FullPreviewPlayer.Position);
         await SaveStudioPreferencesAsync();
     }
 
@@ -470,17 +806,96 @@ public partial class MainWindow
 
     private void OnPlayPreviewClicked(object sender, RoutedEventArgs e)
     {
+        _previewStopAt = null;
         StartPreview();
+    }
+
+    private void OnPausePreviewClicked(object sender, RoutedEventArgs e)
+    {
+        TogglePreviewPlayback();
     }
 
     private void OnStopPreviewClicked(object sender, RoutedEventArgs e)
     {
         _previewTimer.Stop();
         _playPreviewWhenMediaOpened = false;
+        _isPreviewPlaying = false;
+        _previewStopAt = null;
         PreviewPlayer.Stop();
         SetPreviewSeek(TimeSpan.Zero);
         HidePreviewSubtitle();
+        UpdatePlaybackButtonContent();
         SetStatus("プレビューを停止しました。");
+    }
+
+    private async void OnCreateThumbnailClicked(object sender, RoutedEventArgs e)
+    {
+        if (_selectedMovie is null)
+        {
+            SetStatus("動画を選択してください。");
+            return;
+        }
+
+        try
+        {
+            var videoPath = ResolveGenerationVideoPath(_selectedMovie);
+            var capturePosition = PreviewPlayer.Source is not null
+                ? PreviewPlayer.Position
+                : TimeSpan.Zero;
+            var thumbnailPath = GetMovieThumbnailPath(_selectedMovie.Id);
+            SetStatus("サムネイルを作成中です...", hideProgress: false);
+            await CreateThumbnailAsync(videoPath, thumbnailPath, capturePosition);
+
+            _selectedMovie.Video.ThumbnailPath = thumbnailPath;
+            _selectedMovie.Video.ThumbnailTimestampSeconds = Math.Max(0, capturePosition.TotalSeconds);
+            _selectedMovie.UpdatedAt = DateTimeOffset.UtcNow;
+            await _libraryStore.UpsertMovieAsync(_selectedMovie);
+            await RefreshMoviesAsync(_selectedMovie.Id);
+            SetStatus($"サムネイルを作成しました: {FormatTimestamp(capturePosition)}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                ex.Message,
+                "サムネイル作成に失敗しました",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            SetStatus("サムネイル作成に失敗しました。");
+        }
+    }
+
+    private void OnPlayThumbnailClipClicked(object sender, RoutedEventArgs e)
+    {
+        if (_selectedMovie?.Video.ThumbnailTimestampSeconds is not { } seconds)
+        {
+            SetStatus("サムネイル位置がまだありません。先にサムネイルを作成してください。");
+            return;
+        }
+
+        var start = TimeSpan.FromSeconds(Math.Max(0, seconds));
+        _previewStopAt = start.Add(TimeSpan.FromSeconds(5));
+        StartPreview(start);
+        SetStatus("サムネイル位置を5秒だけ再生します。");
+    }
+
+    private void OnWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != Key.Space || e.Handled || IsInteractiveInputFocused(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        if (FullPreviewTabItem.IsSelected)
+        {
+            ToggleFullPreviewPlayback();
+        }
+        else if (EditTabItem.IsSelected)
+        {
+            TogglePreviewPlayback();
+        }
+
+        e.Handled = true;
     }
 
     private void OnPreviewSubtitleClicked(object sender, MouseButtonEventArgs e)
@@ -620,7 +1035,9 @@ public partial class MainWindow
         {
             _playPreviewWhenMediaOpened = false;
             PreviewPlayer.Play();
+            _isPreviewPlaying = true;
             _previewTimer.Start();
+            UpdatePlaybackButtonContent();
             SetStatus("プレビュー再生中です。");
             return;
         }
@@ -632,8 +1049,10 @@ public partial class MainWindow
     {
         _previewTimer.Stop();
         _playPreviewWhenMediaOpened = false;
+        _isPreviewPlaying = false;
         PreviewPlayer.Stop();
         SetPreviewSeek(TimeSpan.Zero);
+        UpdatePlaybackButtonContent();
         SetStatus("プレビューが終了しました。");
     }
 
@@ -694,13 +1113,20 @@ public partial class MainWindow
         StartFullPreview();
     }
 
+    private void OnPauseFullPreviewClicked(object sender, RoutedEventArgs e)
+    {
+        ToggleFullPreviewPlayback();
+    }
+
     private void OnFullPreviewStopClicked(object sender, RoutedEventArgs e)
     {
         _playFullPreviewWhenMediaOpened = false;
         _isFullPreviewSeeking = false;
+        _isFullPreviewPlaying = false;
         FullPreviewPlayer.Stop();
         SetFullPreviewSeek(TimeSpan.Zero);
         HideFullPreviewSubtitle();
+        UpdatePlaybackButtonContent();
         SetStatus("フルプレビューを停止しました。");
     }
 
@@ -732,7 +1158,9 @@ public partial class MainWindow
         {
             _playFullPreviewWhenMediaOpened = false;
             FullPreviewPlayer.Play();
+            _isFullPreviewPlaying = true;
             _previewTimer.Start();
+            UpdatePlaybackButtonContent();
             SetStatus("フルプレビュー再生中です。");
             return;
         }
@@ -743,8 +1171,10 @@ public partial class MainWindow
     private void OnFullPreviewMediaEnded(object sender, RoutedEventArgs e)
     {
         _playFullPreviewWhenMediaOpened = false;
+        _isFullPreviewPlaying = false;
         FullPreviewPlayer.Stop();
         SetFullPreviewSeek(TimeSpan.Zero);
+        UpdatePlaybackButtonContent();
         SetStatus("フルプレビューが終了しました。");
     }
 
@@ -900,6 +1330,7 @@ public partial class MainWindow
 
         AppendSubtitleGenerationLog("Command:");
         AppendSubtitleGenerationLog(FormatProcessCommand(startInfo));
+        AppendSubtitleGenerationLog("RUNNING: waiting for WhisperX process to finish...");
 
         using var process = new Process { StartInfo = startInfo };
         if (!process.Start())
@@ -907,10 +1338,12 @@ public partial class MainWindow
             throw new InvalidOperationException("WhisperX process could not be started.");
         }
 
+        AppendSubtitleGenerationLog($"RUNNING: WhisperX process started. PID={process.Id}");
         var outputTask = PumpProcessOutputAsync(process.StandardOutput);
         var errorTask = PumpProcessOutputAsync(process.StandardError);
         await process.WaitForExitAsync();
         await Task.WhenAll(outputTask, errorTask);
+        AppendSubtitleGenerationLog($"WhisperX process exited with code {process.ExitCode}.");
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException($"WhisperX exited with code {process.ExitCode}.");
@@ -929,6 +1362,199 @@ public partial class MainWindow
         }
 
         throw new FileNotFoundException("WhisperX completed but no SRT file was found.", generatedSrtPath);
+    }
+
+    private async Task<string> GenerateJapaneseSubtitleAsync(Movie movie, string? englishSrtPath = null)
+    {
+        var videoPath = ResolveGenerationVideoPath(movie);
+        var outputDirectory = NormalizeOptionalText(WhisperOutputDirectoryTextBox.Text)
+            ?? GetDefaultSubtitleGenerationDirectory(movie);
+        Directory.CreateDirectory(outputDirectory);
+
+        var baseName = Path.GetFileNameWithoutExtension(videoPath);
+        englishSrtPath ??= ResolveEnglishSubtitlePath(movie, outputDirectory, baseName);
+        var japaneseSrtPath = Path.Combine(outputDirectory, baseName + ".ja.srt");
+        var overwrite = OverwriteJapaneseSubtitleCheckBox.IsChecked == true;
+
+        if (File.Exists(japaneseSrtPath) && !overwrite)
+        {
+            AppendSubtitleGenerationLog($"Existing Japanese subtitle found: {japaneseSrtPath}");
+            return japaneseSrtPath;
+        }
+
+        if (overwrite)
+        {
+            BackupExistingFile(japaneseSrtPath);
+        }
+
+        var translationCommand = NormalizeOptionalText(TranslationCommandTextBox.Text);
+        if (translationCommand is null)
+        {
+            translationCommand = DefaultTranslationCommand;
+        }
+
+        var argumentTemplate = NormalizeOptionalText(TranslationArgumentsTextBox.Text)
+            ?? DefaultTranslationArguments;
+        if (IsCodexSparkCommand(translationCommand)
+            && (argumentTemplate.TrimStart().StartsWith("--input", StringComparison.OrdinalIgnoreCase)
+                || argumentTemplate.Contains("{notesOutput}", StringComparison.OrdinalIgnoreCase)))
+        {
+            argumentTemplate = DefaultTranslationArguments;
+        }
+
+        var useCodexRelativePaths = IsCodexSparkCommand(translationCommand);
+        var processEnglishSrtPath = useCodexRelativePaths
+            ? EnsureFileAvailableInWorkingDirectory(englishSrtPath, outputDirectory)
+            : englishSrtPath;
+        var sourceLanguage = NormalizeOptionalText(TranslationSourceLanguageTextBox.Text) ?? "en";
+        var targetLanguage = NormalizeOptionalText(TranslationTargetLanguageTextBox.Text) ?? "ja";
+        var aiModel = NormalizeOptionalText(TranslationModelTextBox.Text) ?? DefaultCodexSparkModel;
+        var inputDirectory = Path.GetDirectoryName(processEnglishSrtPath) ?? outputDirectory;
+
+        var replacements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["input"] = FormatExternalProcessPath(processEnglishSrtPath, outputDirectory, useCodexRelativePaths),
+            ["output"] = FormatExternalProcessPath(japaneseSrtPath, outputDirectory, useCodexRelativePaths),
+            ["inputDir"] = FormatExternalProcessDirectory(inputDirectory, outputDirectory, useCodexRelativePaths),
+            ["outputDir"] = FormatExternalProcessDirectory(outputDirectory, outputDirectory, useCodexRelativePaths),
+            ["source"] = sourceLanguage,
+            ["target"] = targetLanguage,
+            ["model"] = aiModel,
+            ["movie"] = videoPath,
+            ["title"] = movie.Title
+        };
+        var promptTemplate = NormalizeOptionalText(TranslationPromptTextBox.Text) ?? DefaultTranslationPrompt;
+        var promptText = ApplyArgumentTemplate(promptTemplate, replacements);
+        var promptFilePath = Path.Combine(outputDirectory, baseName + ".translation.prompt.md");
+        await File.WriteAllTextAsync(promptFilePath, promptText, Encoding.UTF8);
+        replacements["promptFile"] = FormatExternalProcessPath(promptFilePath, outputDirectory, useCodexRelativePaths);
+        replacements["prompt"] = promptText;
+
+        var translationArguments = SplitCommandLine(ApplyArgumentTemplate(argumentTemplate, replacements));
+        var startInfo = CreateTranslationProcessStartInfo(translationCommand, translationArguments, outputDirectory, aiModel);
+
+        AppendSubtitleGenerationLog("Translation command:");
+        AppendSubtitleGenerationLog(FormatProcessCommand(startInfo));
+        AppendSubtitleGenerationLog($"Translation input: {englishSrtPath}");
+        AppendSubtitleGenerationLog($"Translation output: {japaneseSrtPath}");
+        AppendSubtitleGenerationLog($"Translation prompt: {promptFilePath}");
+        AppendSubtitleGenerationLog("RUNNING: waiting for AI translation process to finish...");
+
+        using var process = new Process { StartInfo = startInfo };
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("Translation process could not be started.");
+        }
+
+        AppendSubtitleGenerationLog($"RUNNING: translation process started. PID={process.Id}");
+        var outputTask = PumpProcessOutputAsync(process.StandardOutput);
+        var errorTask = PumpProcessOutputAsync(process.StandardError);
+        await process.WaitForExitAsync();
+        await Task.WhenAll(outputTask, errorTask);
+        AppendSubtitleGenerationLog($"Translation process exited with code {process.ExitCode}.");
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"Translation process exited with code {process.ExitCode}.");
+        }
+
+        if (!File.Exists(japaneseSrtPath))
+        {
+            throw new FileNotFoundException("Translation process completed but no Japanese SRT file was found.", japaneseSrtPath);
+        }
+
+        AppendSubtitleGenerationLog("Verifying generated Japanese SRT...");
+        var translatedContent = await File.ReadAllTextAsync(japaneseSrtPath, Encoding.UTF8);
+        var translatedDocument = SubtitleParser.Parse(translatedContent, japaneseSrtPath);
+        if (translatedDocument.Cues.Count == 0)
+        {
+            throw new InvalidOperationException("生成された日本語字幕に字幕キューが見つかりませんでした。");
+        }
+
+        AppendSubtitleGenerationLog($"Japanese SRT verified: {translatedDocument.Cues.Count} cues.");
+        return japaneseSrtPath;
+    }
+
+    private async Task<int> GenerateLearningNotesAsync(Movie movie)
+    {
+        var videoPath = ResolveGenerationVideoPath(movie);
+        var outputDirectory = NormalizeOptionalText(WhisperOutputDirectoryTextBox.Text)
+            ?? GetDefaultSubtitleGenerationDirectory(movie);
+        Directory.CreateDirectory(outputDirectory);
+
+        var baseName = Path.GetFileNameWithoutExtension(videoPath);
+        var englishSrtPath = ResolveEnglishSubtitlePath(movie, outputDirectory, baseName);
+        var notesOutputPath = Path.Combine(outputDirectory, baseName + ".learning-notes.json");
+        var noteGenerationStartedAtUtc = PrepareGeneratedOutputPath(notesOutputPath);
+
+        var command = NormalizeOptionalText(TranslationCommandTextBox.Text) ?? DefaultTranslationCommand;
+        var useCodexRelativePaths = IsCodexSparkCommand(command);
+        var processEnglishSrtPath = useCodexRelativePaths
+            ? EnsureFileAvailableInWorkingDirectory(englishSrtPath, outputDirectory)
+            : englishSrtPath;
+        var promptFilePath = Path.Combine(outputDirectory, baseName + ".learning-notes.prompt.md");
+        var sourceLanguage = NormalizeOptionalText(TranslationSourceLanguageTextBox.Text) ?? "en";
+        var aiModel = NormalizeOptionalText(TranslationModelTextBox.Text) ?? DefaultCodexSparkModel;
+        var audienceLevel = SelectedComboText(LearningNotesAudienceLevelComboBox, DefaultLearningNotesAudienceLevel);
+        var inputDirectory = Path.GetDirectoryName(processEnglishSrtPath) ?? outputDirectory;
+        var replacements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["input"] = FormatExternalProcessPath(processEnglishSrtPath, outputDirectory, useCodexRelativePaths),
+            ["notesOutput"] = FormatExternalProcessPath(notesOutputPath, outputDirectory, useCodexRelativePaths),
+            ["inputDir"] = FormatExternalProcessDirectory(inputDirectory, outputDirectory, useCodexRelativePaths),
+            ["outputDir"] = FormatExternalProcessDirectory(outputDirectory, outputDirectory, useCodexRelativePaths),
+            ["source"] = sourceLanguage,
+            ["model"] = aiModel,
+            ["audienceLevel"] = audienceLevel,
+            ["movie"] = videoPath,
+            ["title"] = movie.Title,
+            ["promptFile"] = FormatExternalProcessPath(promptFilePath, outputDirectory, useCodexRelativePaths)
+        };
+        var promptTemplate = NormalizeOptionalText(LearningNotesPromptTextBox.Text) ?? DefaultLearningNotesPrompt;
+        var promptText = ApplyArgumentTemplate(promptTemplate, replacements);
+        await File.WriteAllTextAsync(promptFilePath, promptText, Encoding.UTF8);
+
+        var noteArguments = SplitCommandLine(ApplyArgumentTemplate(DefaultLearningNotesArguments, replacements));
+        var startInfo = CreateTranslationProcessStartInfo(command, noteArguments, outputDirectory, aiModel);
+
+        AppendSubtitleGenerationLog("AI note command:");
+        AppendSubtitleGenerationLog(FormatProcessCommand(startInfo));
+        AppendSubtitleGenerationLog($"AI note input: {englishSrtPath}");
+        AppendSubtitleGenerationLog($"AI note output: {notesOutputPath}");
+        AppendSubtitleGenerationLog($"AI note prompt: {promptFilePath}");
+        AppendSubtitleGenerationLog("RUNNING: waiting for AI note process to finish...");
+
+        using var process = new Process { StartInfo = startInfo };
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("AI note process could not be started.");
+        }
+
+        AppendSubtitleGenerationLog($"RUNNING: AI note process started. PID={process.Id}");
+        var outputTask = PumpProcessOutputAsync(process.StandardOutput);
+        var errorTask = PumpProcessOutputAsync(process.StandardError);
+        await process.WaitForExitAsync();
+        await Task.WhenAll(outputTask, errorTask);
+        AppendSubtitleGenerationLog($"AI note process exited with code {process.ExitCode}.");
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"AI note process exited with code {process.ExitCode}.");
+        }
+
+        EnsureGeneratedOutputIsFresh(
+            notesOutputPath,
+            noteGenerationStartedAtUtc,
+            "AI note process completed but no fresh learning notes JSON was found.");
+
+        var targetTrack = FindLearningNotesTargetTrack(movie, englishSrtPath);
+        if (targetTrack is null)
+        {
+            AppendSubtitleGenerationLog("English subtitle track was not imported yet. Importing it before applying AI notes.");
+            targetTrack = await ImportSubtitleAsync(movie, englishSrtPath);
+        }
+
+        var importedCount = await ImportLearningNotesAsync(movie, targetTrack, notesOutputPath);
+        AppendSubtitleGenerationLog($"AI notes imported into {targetTrack.Label}: {importedCount} cues.");
+        return importedCount;
     }
 
     private async Task<SubtitleTrack> ImportSubtitleAsync(Movie movie, string sourcePath)
@@ -973,6 +1599,300 @@ public partial class MainWindow
         RefreshMovieSceneMarkers(movie);
         await _libraryStore.UpsertMovieAsync(movie);
         return track;
+    }
+
+    private async Task<int> ImportLearningNotesAsync(Movie movie, SubtitleTrack targetTrack, string notesOutputPath)
+    {
+        var json = await File.ReadAllTextAsync(notesOutputPath, Encoding.UTF8);
+        var notes = ParseLearningNotesJson(json);
+        if (notes.Count == 0)
+        {
+            throw new InvalidOperationException("AIメモJSONに取り込めるメモが見つかりませんでした。");
+        }
+
+        ValidateLearningNotesQuality(notes, targetTrack.Cues.Count);
+
+        var importedCount = 0;
+        foreach (var note in notes)
+        {
+            if (note.Index <= 0)
+            {
+                continue;
+            }
+
+            var cue = targetTrack.Cues.FirstOrDefault(candidate => candidate.Index == note.Index);
+            if (cue is null)
+            {
+                continue;
+            }
+
+            var aiNote = NormalizeLearningNoteText(note);
+            if (aiNote is null)
+            {
+                var existingState = FindCueLearningState(targetTrack, cue.Id, cue.Index);
+                if (!string.IsNullOrWhiteSpace(existingState?.AiNote))
+                {
+                    existingState.AiNote = null;
+                    existingState.UpdatedAt = DateTimeOffset.UtcNow;
+                    importedCount++;
+                }
+
+                continue;
+            }
+
+            var state = EnsureCueLearningState(targetTrack, cue.Id, cue.Index);
+            if (string.Equals(state.AiNote, aiNote, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            state.AiNote = aiNote;
+            state.UpdatedAt = DateTimeOffset.UtcNow;
+            importedCount++;
+        }
+
+        if (importedCount > 0)
+        {
+            await _libraryStore.UpsertMovieAsync(movie);
+        }
+
+        return importedCount;
+    }
+
+    private static SubtitleTrack? FindLearningNotesTargetTrack(Movie movie, string englishSrtPath)
+    {
+        var sourceFileName = Path.GetFileName(englishSrtPath);
+        var exactTrack = movie.SubtitleTracks.FirstOrDefault(track =>
+            IsEnglishSubtitleTrack(track)
+            && (string.Equals(track.SourceUri, englishSrtPath, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(track.SourceFileName, sourceFileName, StringComparison.OrdinalIgnoreCase)));
+        if (exactTrack is not null)
+        {
+            return exactTrack;
+        }
+
+        var metadata = SubtitleFileMetadataService.Infer(sourceFileName);
+        if (!string.IsNullOrWhiteSpace(metadata.GroupKey))
+        {
+            var groupedTrack = movie.SubtitleTracks.FirstOrDefault(track =>
+                IsEnglishSubtitleTrack(track)
+                && string.Equals(track.GroupKey, metadata.GroupKey, StringComparison.OrdinalIgnoreCase));
+            if (groupedTrack is not null)
+            {
+                return groupedTrack;
+            }
+        }
+
+        return movie.SubtitleTracks.FirstOrDefault(IsEnglishSubtitleTrack);
+    }
+
+    private static List<LearningNoteImportRow> ParseLearningNotesJson(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var notesElement = root;
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            if (TryGetProperty(root, "notes", out var notesProperty))
+            {
+                notesElement = notesProperty;
+            }
+            else if (TryGetProperty(root, "items", out var itemsProperty))
+            {
+                notesElement = itemsProperty;
+            }
+        }
+
+        if (notesElement.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var rows = new List<LearningNoteImportRow>();
+        foreach (var item in notesElement.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            rows.Add(new LearningNoteImportRow(
+                TryGetInt(item, "index")
+                    ?? TryGetInt(item, "cueIndex")
+                    ?? TryGetInt(item, "cue_index")
+                    ?? 0,
+                TryGetString(item, "cefr")
+                    ?? TryGetString(item, "level"),
+                TryGetString(item, "note")
+                    ?? TryGetString(item, "memo")
+                    ?? TryGetString(item, "comment")));
+        }
+
+        return rows;
+    }
+
+    private static string? NormalizeLearningNoteText(LearningNoteImportRow note)
+    {
+        var text = NormalizeOptionalText(note.Note);
+        var cefr = NormalizeOptionalText(note.Cefr);
+        if (text is null)
+        {
+            return null;
+        }
+
+        if (IsNoDisplayLearningNoteText(text))
+        {
+            return null;
+        }
+
+        if (cefr is not null
+            && !text.Contains("CEFR", StringComparison.OrdinalIgnoreCase)
+            && !text.Contains(cefr, StringComparison.OrdinalIgnoreCase))
+        {
+            text = $"CEFR {cefr}: {text}";
+        }
+
+        return text;
+    }
+
+    private static bool IsNoDisplayLearningNoteText(string text)
+    {
+        return text.Contains("コメント不要", StringComparison.Ordinal)
+            || text.Contains("解説不要", StringComparison.Ordinal)
+            || text.Contains("メモ不要", StringComparison.Ordinal)
+            || text.Contains("対象者レベル以下", StringComparison.Ordinal)
+            || text.Contains("対象レベル以下", StringComparison.Ordinal);
+    }
+
+    private static bool IsLegacyLearningNotesPrompt(string prompt)
+    {
+        return !prompt.Contains("{audienceLevel}", StringComparison.OrdinalIgnoreCase)
+            || !prompt.Contains("コメント不要", StringComparison.Ordinal);
+    }
+
+    private static void ValidateLearningNotesQuality(IReadOnlyList<LearningNoteImportRow> notes, int expectedCueCount)
+    {
+        if (expectedCueCount > 0 && notes.Count != expectedCueCount)
+        {
+            throw new InvalidOperationException(
+                $"AIメモJSONの件数が字幕数と一致しません: notes={notes.Count}, cues={expectedCueCount}");
+        }
+
+        var normalizedNotes = notes
+            .Select(NormalizeLearningNoteText)
+            .Where(note => !string.IsNullOrWhiteSpace(note))
+            .Cast<string>()
+            .ToList();
+        if (normalizedNotes.Count == 0)
+        {
+            throw new InvalidOperationException("AIメモJSONに取り込めるnoteがありません。重要な語彙・構文・世界観語だけをnoteにしてください。");
+        }
+
+        var placeholderNotes = normalizedNotes
+            .Where(note =>
+                note.Contains("$k", StringComparison.OrdinalIgnoreCase)
+                || note.Contains("{", StringComparison.Ordinal)
+                || note.Contains("}", StringComparison.Ordinal)
+                || note.Contains("など抽象語", StringComparison.Ordinal)
+                || note.Contains("基本表現。", StringComparison.Ordinal)
+                || note.Contains("最小文型", StringComparison.Ordinal)
+                || note.Contains("日常の応答や確認", StringComparison.Ordinal)
+                || note.Contains("動詞フレーズ中心", StringComparison.Ordinal)
+                || note.Contains("時制・文の型", StringComparison.Ordinal)
+                || note.Contains("理由や条件を含み", StringComparison.Ordinal)
+                || note.Contains("習得しやすい", StringComparison.Ordinal)
+                || note.Contains("基礎語彙", StringComparison.Ordinal))
+            .Take(3)
+            .ToList();
+        if (placeholderNotes.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "生成されたAIメモの品質が低いため取り込みませんでした。テンプレート/プレースホルダのような文があります: "
+                + string.Join(" / ", placeholderNotes));
+        }
+
+        if (expectedCueCount >= 40 && normalizedNotes.Count > (int)Math.Ceiling(expectedCueCount * 0.55))
+        {
+            throw new InvalidOperationException(
+                $"生成されたAIメモの品質が低いため取り込みませんでした。noteが多すぎます: notes={normalizedNotes.Count}, cues={expectedCueCount}。"
+                + " B1以上の重要表現、世界観語、特殊な口語だけに絞ってください。");
+        }
+
+        if (normalizedNotes.Count < 30)
+        {
+            return;
+        }
+
+        var noteGroups = normalizedNotes
+            .GroupBy(note => note, StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count())
+            .ToList();
+        var mostRepeated = noteGroups.First();
+        var uniqueCount = noteGroups.Count;
+        var maxAllowedRepeat = Math.Max(8, (int)Math.Ceiling(normalizedNotes.Count * 0.20));
+        var minExpectedUnique = Math.Max(15, (int)Math.Ceiling(normalizedNotes.Count * 0.30));
+
+        if (mostRepeated.Count() > maxAllowedRepeat)
+        {
+            throw new InvalidOperationException(
+                $"生成されたAIメモの品質が低いため取り込みませんでした。同じnoteが多すぎます: {mostRepeated.Count()}件 / {normalizedNotes.Count}件。"
+                + $" 例: {mostRepeated.Key}");
+        }
+
+        if (uniqueCount < minExpectedUnique)
+        {
+            throw new InvalidOperationException(
+                $"生成されたAIメモの品質が低いため取り込みませんでした。内容が単調すぎます: unique={uniqueCount}, notes={normalizedNotes.Count}。"
+                + " 各字幕固有の語句と理由を含めて再生成してください。");
+        }
+    }
+
+    private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static int? TryGetInt(JsonElement element, string propertyName)
+    {
+        if (!TryGetProperty(element, propertyName, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+        {
+            return number;
+        }
+
+        return value.ValueKind == JsonValueKind.String
+            && int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out number)
+                ? number
+                : null;
+    }
+
+    private static string? TryGetString(JsonElement element, string propertyName)
+    {
+        if (!TryGetProperty(element, propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.ToString(),
+            _ => null
+        };
     }
 
     private void DeleteCachedSubtitleFiles(string movieId, SubtitleTrack track)
@@ -1128,6 +2048,7 @@ public partial class MainWindow
                 SubtitlesDataGrid.ItemsSource = null;
                 ScenesDataGrid.ItemsSource = null;
                 HidePreviewSubtitle();
+                HideFullPreviewSubtitle();
                 return;
             }
 
@@ -1159,11 +2080,18 @@ public partial class MainWindow
         AddSubtitleButton.IsEnabled = enabled;
         RemoveSubtitleButton.IsEnabled = enabled && SubtitlesDataGrid.SelectedItem is not null;
         WriteSidecarButton.IsEnabled = enabled;
+        ExportDrivePackageButton.IsEnabled = enabled;
         DualSubtitleButton.IsEnabled = enabled;
+        LearningNotesButton.IsEnabled = enabled;
         PlayButton.IsEnabled = enabled;
+        PauseButton.IsEnabled = enabled;
         StopButton.IsEnabled = enabled;
+        CreateThumbnailButton.IsEnabled = enabled;
+        PlayThumbnailClipButton.IsEnabled = enabled && _selectedMovie?.Video.ThumbnailTimestampSeconds is not null;
         FullPreviewPlayButton.IsEnabled = enabled;
+        FullPreviewPauseButton.IsEnabled = enabled;
         FullPreviewStopButton.IsEnabled = enabled;
+        FullPreviewLearningNotesButton.IsEnabled = enabled;
         if (!enabled)
         {
             PreviewSeekSlider.IsEnabled = false;
@@ -1175,6 +2103,11 @@ public partial class MainWindow
         OriginalSubtitleWriteBackCheckBox.IsEnabled = enabled;
         FlaggedOnlyCheckBox.IsEnabled = enabled;
         PlayFlaggedButton.IsEnabled = enabled;
+        EnglishSubtitlePositionComboBox.IsEnabled = enabled;
+        JapaneseSubtitlePositionComboBox.IsEnabled = enabled;
+        AiNotePositionComboBox.IsEnabled = enabled;
+        UserNotePositionComboBox.IsEnabled = enabled;
+        ResetOverlayLayoutButton.IsEnabled = enabled;
         SubtitlesDataGrid.IsEnabled = enabled;
         ScenesDataGrid.IsEnabled = enabled;
         SetSubtitleGenerationEnabled(enabled && !_isSubtitleGenerationRunning);
@@ -1189,10 +2122,24 @@ public partial class MainWindow
         WhisperLanguageTextBox.IsEnabled = enabled;
         WhisperDeviceComboBox.IsEnabled = enabled;
         WhisperComputeTypeComboBox.IsEnabled = enabled;
+        TranslationCommandTextBox.IsEnabled = enabled;
+        TranslationArgumentsTextBox.IsEnabled = enabled;
+        TranslationSourceLanguageTextBox.IsEnabled = enabled;
+        TranslationTargetLanguageTextBox.IsEnabled = enabled;
+        TranslationModelTextBox.IsEnabled = enabled;
+        TranslationPromptTextBox.IsEnabled = enabled;
+        ResetTranslationPromptButton.IsEnabled = enabled;
+        LearningNotesAudienceLevelComboBox.IsEnabled = enabled;
+        LearningNotesPromptTextBox.IsEnabled = enabled;
+        ResetLearningNotesPromptButton.IsEnabled = enabled;
         OverwriteGeneratedSubtitleCheckBox.IsEnabled = enabled;
+        OverwriteJapaneseSubtitleCheckBox.IsEnabled = enabled;
         BrowseWhisperOutputDirectoryButton.IsEnabled = enabled;
         SaveWhisperDefaultsButton.IsEnabled = enabled;
         GenerateEnglishSubtitleButton.IsEnabled = enabled;
+        GenerateJapaneseSubtitleButton.IsEnabled = enabled;
+        GenerateEnglishAndJapaneseSubtitleButton.IsEnabled = enabled;
+        GenerateAiNotesButton.IsEnabled = enabled;
     }
 
     private void UpdateSubtitleGenerationPanel(Movie? movie)
@@ -1200,19 +2147,51 @@ public partial class MainWindow
         if (movie is null)
         {
             GenerationMovieTextBlock.Text = "動画を選択してください";
+            SetSubtitleGenerationState("待機中");
             return;
         }
 
         GenerationMovieTextBlock.Text = movie.Title;
+        if (!_isSubtitleGenerationRunning)
+        {
+            SetSubtitleGenerationState("待機中");
+        }
+
         if (string.IsNullOrWhiteSpace(WhisperOutputDirectoryTextBox.Text))
         {
             WhisperOutputDirectoryTextBox.Text = GetDefaultSubtitleGenerationDirectory(movie);
         }
     }
 
-    private void SetStatus(string message)
+    private void SetSubtitleGenerationState(string message)
+    {
+        SubtitleGenerationStateTextBlock.Text = message;
+    }
+
+    private void SetStatus(string message, bool hideProgress = true)
     {
         StatusTextBlock.Text = message;
+        if (hideProgress)
+        {
+            HideStatusProgress();
+        }
+    }
+
+    private void SetPackageExportProgress(CoffeeMoviePackageExportProgress progress)
+    {
+        StatusProgressBar.Visibility = Visibility.Visible;
+        StatusProgressTextBlock.Visibility = Visibility.Visible;
+        StatusProgressBar.Value = progress.Percent;
+        StatusProgressTextBlock.Text = $"{progress.Percent:0}%";
+        StatusTextBlock.Text = $"{progress.Stage}: {FormatBytes(progress.BytesWritten)} / {FormatBytes(progress.TotalBytes)}";
+    }
+
+    private void HideStatusProgress()
+    {
+        StatusProgressBar.Value = 0;
+        StatusProgressTextBlock.Text = "0%";
+        StatusProgressBar.Visibility = Visibility.Collapsed;
+        StatusProgressTextBlock.Visibility = Visibility.Collapsed;
     }
 
     private void ApplyStudioPreferences(MovieLibrary library)
@@ -1224,7 +2203,21 @@ public partial class MainWindow
                 ? "#F6C945"
                 : library.Studio.SubtitleTagHighlightColor;
             _showDualSubtitles = library.Studio.ShowDualSubtitles;
+            _showLearningNotes = library.Studio.ShowLearningNotes;
+            _englishSubtitleOverlayPosition = NormalizeOverlayPosition(
+                library.Studio.EnglishSubtitleOverlayPosition,
+                DefaultEnglishSubtitleOverlayPosition);
+            _japaneseSubtitleOverlayPosition = NormalizeOverlayPosition(
+                library.Studio.JapaneseSubtitleOverlayPosition,
+                DefaultJapaneseSubtitleOverlayPosition);
+            _aiNoteOverlayPosition = NormalizeOverlayPosition(
+                library.Studio.AiNoteOverlayPosition,
+                DefaultAiNoteOverlayPosition);
+            _userNoteOverlayPosition = NormalizeOverlayPosition(
+                library.Studio.UserNoteOverlayPosition,
+                DefaultUserNoteOverlayPosition);
             HighlightColorComboBox.SelectedValue = _subtitleTagHighlightColor;
+            ApplyOverlayPositionComboBoxes();
             WhisperOutputDirectoryTextBox.Text = library.Studio.WhisperOutputDirectory ?? string.Empty;
             WhisperPythonCommandTextBox.Text = string.IsNullOrWhiteSpace(library.Studio.WhisperPythonCommand)
                 ? "py"
@@ -1240,7 +2233,41 @@ public partial class MainWindow
                 : library.Studio.WhisperLanguage;
             SelectComboBoxItem(WhisperDeviceComboBox, library.Studio.WhisperDevice, "cuda");
             SelectComboBoxItem(WhisperComputeTypeComboBox, library.Studio.WhisperComputeType, "float16");
+            TranslationCommandTextBox.Text = string.IsNullOrWhiteSpace(library.Studio.TranslationCommand)
+                ? DefaultTranslationCommand
+                : library.Studio.TranslationCommand;
+            TranslationModelTextBox.Text = string.IsNullOrWhiteSpace(library.Studio.TranslationModel)
+                ? DefaultCodexSparkModel
+                : library.Studio.TranslationModel;
+            TranslationArgumentsTextBox.Text = string.IsNullOrWhiteSpace(library.Studio.TranslationArguments)
+                ? DefaultTranslationArguments
+                : library.Studio.TranslationArguments;
+            if (string.Equals(TranslationCommandTextBox.Text, DefaultTranslationCommand, StringComparison.OrdinalIgnoreCase)
+                && (TranslationArgumentsTextBox.Text.TrimStart().StartsWith("--input", StringComparison.OrdinalIgnoreCase)
+                    || TranslationArgumentsTextBox.Text.Contains("{notesOutput}", StringComparison.OrdinalIgnoreCase)))
+            {
+                TranslationArgumentsTextBox.Text = DefaultTranslationArguments;
+            }
+
+            TranslationSourceLanguageTextBox.Text = string.IsNullOrWhiteSpace(library.Studio.TranslationSourceLanguage)
+                ? "en"
+                : library.Studio.TranslationSourceLanguage;
+            TranslationTargetLanguageTextBox.Text = string.IsNullOrWhiteSpace(library.Studio.TranslationTargetLanguage)
+                ? "ja"
+                : library.Studio.TranslationTargetLanguage;
+            TranslationPromptTextBox.Text = string.IsNullOrWhiteSpace(library.Studio.TranslationPrompt)
+                ? DefaultTranslationPrompt
+                : library.Studio.TranslationPrompt;
+            var learningNotesPrompt = NormalizeOptionalText(library.Studio.LearningNotesPrompt);
+            LearningNotesPromptTextBox.Text = learningNotesPrompt is null || IsLegacyLearningNotesPrompt(learningNotesPrompt)
+                ? DefaultLearningNotesPrompt
+                : learningNotesPrompt;
+            SelectComboBoxItem(
+                LearningNotesAudienceLevelComboBox,
+                library.Studio.LearningNotesAudienceLevel,
+                DefaultLearningNotesAudienceLevel);
             UpdateDualSubtitleButton();
+            UpdateLearningNotesButton();
         }
         finally
         {
@@ -1253,6 +2280,11 @@ public partial class MainWindow
         var library = await _libraryStore.LoadAsync();
         library.Studio.SubtitleTagHighlightColor = _subtitleTagHighlightColor;
         library.Studio.ShowDualSubtitles = _showDualSubtitles;
+        library.Studio.ShowLearningNotes = _showLearningNotes;
+        library.Studio.EnglishSubtitleOverlayPosition = _englishSubtitleOverlayPosition;
+        library.Studio.JapaneseSubtitleOverlayPosition = _japaneseSubtitleOverlayPosition;
+        library.Studio.AiNoteOverlayPosition = _aiNoteOverlayPosition;
+        library.Studio.UserNoteOverlayPosition = _userNoteOverlayPosition;
         library.Studio.WhisperOutputDirectory = NormalizeOptionalText(WhisperOutputDirectoryTextBox.Text);
         library.Studio.WhisperPythonCommand = NormalizeOptionalText(WhisperPythonCommandTextBox.Text) ?? "py";
         library.Studio.WhisperPythonArguments = NormalizeOptionalText(WhisperPythonArgumentsTextBox.Text) ?? "-3.10 -m whisperx";
@@ -1260,6 +2292,23 @@ public partial class MainWindow
         library.Studio.WhisperLanguage = NormalizeOptionalText(WhisperLanguageTextBox.Text) ?? "en";
         library.Studio.WhisperDevice = SelectedComboText(WhisperDeviceComboBox, "cuda");
         library.Studio.WhisperComputeType = SelectedComboText(WhisperComputeTypeComboBox, "float16");
+        library.Studio.TranslationCommand = NormalizeOptionalText(TranslationCommandTextBox.Text) ?? DefaultTranslationCommand;
+        library.Studio.TranslationModel = NormalizeOptionalText(TranslationModelTextBox.Text) ?? DefaultCodexSparkModel;
+        library.Studio.TranslationArguments = NormalizeOptionalText(TranslationArgumentsTextBox.Text)
+            ?? DefaultTranslationArguments;
+        library.Studio.TranslationSourceLanguage = NormalizeOptionalText(TranslationSourceLanguageTextBox.Text) ?? "en";
+        library.Studio.TranslationTargetLanguage = NormalizeOptionalText(TranslationTargetLanguageTextBox.Text) ?? "ja";
+        var translationPrompt = NormalizeOptionalText(TranslationPromptTextBox.Text);
+        library.Studio.TranslationPrompt = string.Equals(translationPrompt, DefaultTranslationPrompt, StringComparison.Ordinal)
+            ? null
+            : translationPrompt;
+        var learningNotesPrompt = NormalizeOptionalText(LearningNotesPromptTextBox.Text);
+        library.Studio.LearningNotesPrompt = string.Equals(learningNotesPrompt, DefaultLearningNotesPrompt, StringComparison.Ordinal)
+            ? null
+            : learningNotesPrompt;
+        library.Studio.LearningNotesAudienceLevel = SelectedComboText(
+            LearningNotesAudienceLevelComboBox,
+            DefaultLearningNotesAudienceLevel);
         await _libraryStore.SaveAsync(library);
     }
 
@@ -1272,6 +2321,24 @@ public partial class MainWindow
         DualSubtitleButton.Foreground = _showDualSubtitles
             ? new SolidColorBrush(Color.FromRgb(0x04, 0x10, 0x0F))
             : Brushes.White;
+    }
+
+    private void UpdateLearningNotesButton()
+    {
+        var content = _showLearningNotes ? "メモ表示: ON" : "メモ表示: OFF";
+        var background = _showLearningNotes
+            ? FindResource("AccentBrush") as System.Windows.Media.Brush
+            : new SolidColorBrush(Color.FromRgb(0x12, 0x1A, 0x26));
+        var foreground = _showLearningNotes
+            ? new SolidColorBrush(Color.FromRgb(0x04, 0x10, 0x0F))
+            : Brushes.White;
+
+        LearningNotesButton.Content = content;
+        LearningNotesButton.Background = background;
+        LearningNotesButton.Foreground = foreground;
+        FullPreviewLearningNotesButton.Content = content;
+        FullPreviewLearningNotesButton.Background = background;
+        FullPreviewLearningNotesButton.Foreground = foreground;
     }
 
     private void ShowError(string title, Exception exception)
@@ -1578,32 +2645,28 @@ public partial class MainWindow
         }
 
         _currentPreviewCue = lines[0].Cue;
-        PreviewSubtitlePrimaryTextBlock.Text = NormalizePreviewSubtitleText(lines[0].Cue.Text);
-        if (lines.Count > 1)
-        {
-            PreviewSubtitleSecondaryTextBlock.Text = NormalizePreviewSubtitleText(lines[1].Cue.Text);
-            PreviewSubtitleSecondaryTextBlock.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            PreviewSubtitleSecondaryTextBlock.Text = string.Empty;
-            PreviewSubtitleSecondaryTextBlock.Visibility = Visibility.Collapsed;
-        }
-
-        var hasTaggedCue = lines.Any(line => HasSubtitleTags(FindCueLearningState(line.Track, line.Cue)));
-        PreviewSubtitleOverlay.BorderBrush = hasTaggedCue ? CreateBrush(_subtitleTagHighlightColor) : Brushes.Transparent;
-        PreviewSubtitleOverlay.BorderThickness = hasTaggedCue ? new Thickness(2) : new Thickness(0);
-        PreviewSubtitleOverlay.Visibility = Visibility.Visible;
+        RenderOverlayPanels(
+            PreviewAboveOverlayPanel,
+            PreviewBelowOverlayPanel,
+            CreateOverlayItems(position, lines),
+            isFullPreview: false);
+        PreviewSubtitleOverlay.Visibility = Visibility.Collapsed;
+        PreviewLearningNoteOverlay.Visibility = Visibility.Collapsed;
     }
 
     private void HidePreviewSubtitle()
     {
         _currentPreviewCue = null;
+        PreviewAboveOverlayPanel.Children.Clear();
+        PreviewAboveOverlayPanel.Visibility = Visibility.Collapsed;
+        PreviewBelowOverlayPanel.Children.Clear();
+        PreviewBelowOverlayPanel.Visibility = Visibility.Collapsed;
         PreviewSubtitlePrimaryTextBlock.Text = string.Empty;
         PreviewSubtitleSecondaryTextBlock.Text = string.Empty;
         PreviewSubtitleSecondaryTextBlock.Visibility = Visibility.Collapsed;
         PreviewSubtitleOverlay.BorderThickness = new Thickness(0);
         PreviewSubtitleOverlay.Visibility = Visibility.Collapsed;
+        HidePreviewLearningNoteOverlay();
     }
 
     private void UpdateFullPreviewSubtitle(TimeSpan position)
@@ -1615,31 +2678,346 @@ public partial class MainWindow
             return;
         }
 
-        FullPreviewSubtitlePrimaryTextBlock.Text = NormalizePreviewSubtitleText(lines[0].Cue.Text);
-        if (lines.Count > 1)
-        {
-            FullPreviewSubtitleSecondaryTextBlock.Text = NormalizePreviewSubtitleText(lines[1].Cue.Text);
-            FullPreviewSubtitleSecondaryTextBlock.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            FullPreviewSubtitleSecondaryTextBlock.Text = string.Empty;
-            FullPreviewSubtitleSecondaryTextBlock.Visibility = Visibility.Collapsed;
-        }
-
-        var hasTaggedCue = lines.Any(line => HasSubtitleTags(FindCueLearningState(line.Track, line.Cue)));
-        FullPreviewSubtitleOverlay.BorderBrush = hasTaggedCue ? CreateBrush(_subtitleTagHighlightColor) : Brushes.Transparent;
-        FullPreviewSubtitleOverlay.BorderThickness = hasTaggedCue ? new Thickness(2) : new Thickness(0);
-        FullPreviewSubtitleOverlay.Visibility = Visibility.Visible;
+        RenderOverlayPanels(
+            FullPreviewAboveOverlayPanel,
+            FullPreviewBelowOverlayPanel,
+            CreateOverlayItems(position, lines),
+            isFullPreview: true);
+        FullPreviewSubtitleOverlay.Visibility = Visibility.Collapsed;
+        FullPreviewLearningNoteOverlay.Visibility = Visibility.Collapsed;
     }
 
     private void HideFullPreviewSubtitle()
     {
+        FullPreviewAboveOverlayPanel.Children.Clear();
+        FullPreviewAboveOverlayPanel.Visibility = Visibility.Collapsed;
+        FullPreviewBelowOverlayPanel.Children.Clear();
+        FullPreviewBelowOverlayPanel.Visibility = Visibility.Collapsed;
         FullPreviewSubtitlePrimaryTextBlock.Text = string.Empty;
         FullPreviewSubtitleSecondaryTextBlock.Text = string.Empty;
         FullPreviewSubtitleSecondaryTextBlock.Visibility = Visibility.Collapsed;
         FullPreviewSubtitleOverlay.BorderThickness = new Thickness(0);
         FullPreviewSubtitleOverlay.Visibility = Visibility.Collapsed;
+        HideFullPreviewLearningNoteOverlay();
+    }
+
+    private List<PreviewOverlayItem> CreateOverlayItems(TimeSpan position, IReadOnlyList<PreviewSubtitleLine> lines)
+    {
+        var items = new List<PreviewOverlayItem>();
+        foreach (var line in lines)
+        {
+            var text = NormalizePreviewSubtitleText(line.Cue.Text);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            var isJapanese = IsJapaneseSubtitleTrack(line.Track);
+            items.Add(new PreviewOverlayItem(
+                isJapanese ? PreviewOverlayKind.JapaneseSubtitle : PreviewOverlayKind.EnglishSubtitle,
+                text,
+                isJapanese ? _japaneseSubtitleOverlayPosition : _englishSubtitleOverlayPosition,
+                HasSubtitleTags(FindCueLearningState(line.Track, line.Cue))));
+        }
+
+        if (_showLearningNotes && FindLearningNoteState(position, lines) is { } state)
+        {
+            if (NormalizeOptionalText(state.AiNote) is { } aiNote)
+            {
+                items.Add(new PreviewOverlayItem(
+                    PreviewOverlayKind.AiNote,
+                    "AI: " + aiNote,
+                    _aiNoteOverlayPosition,
+                    HasHighlight: false));
+            }
+
+            if (NormalizeOptionalText(state.Note) is { } note)
+            {
+                items.Add(new PreviewOverlayItem(
+                    PreviewOverlayKind.UserNote,
+                    "MEMO: " + note,
+                    _userNoteOverlayPosition,
+                    HasHighlight: false));
+            }
+        }
+
+        return items;
+    }
+
+    private void RenderOverlayPanels(
+        StackPanel abovePanel,
+        StackPanel belowPanel,
+        IReadOnlyList<PreviewOverlayItem> items,
+        bool isFullPreview)
+    {
+        abovePanel.Children.Clear();
+        belowPanel.Children.Clear();
+
+        var aboveItems = items
+            .Select(item => new PositionedOverlayItem(item, ParseOverlayPosition(item.Position)))
+            .Where(item => item.Placement.Side == OverlaySide.Above)
+            .OrderBy(item => item.Placement.Order)
+            .ThenBy(item => item.Item.SortPriority);
+        foreach (var item in aboveItems)
+        {
+            abovePanel.Children.Add(CreateOverlayCard(item.Item, isFullPreview));
+        }
+
+        var belowItems = items
+            .Select(item => new PositionedOverlayItem(item, ParseOverlayPosition(item.Position)))
+            .Where(item => item.Placement.Side == OverlaySide.Below)
+            .OrderByDescending(item => item.Placement.Order)
+            .ThenBy(item => item.Item.SortPriority);
+        foreach (var item in belowItems)
+        {
+            belowPanel.Children.Add(CreateOverlayCard(item.Item, isFullPreview));
+        }
+
+        abovePanel.Visibility = abovePanel.Children.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        belowPanel.Visibility = belowPanel.Children.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private FrameworkElement CreateOverlayCard(PreviewOverlayItem item, bool isFullPreview)
+    {
+        var isSubtitle = item.Kind is PreviewOverlayKind.EnglishSubtitle or PreviewOverlayKind.JapaneseSubtitle;
+        var isJapanese = item.Kind == PreviewOverlayKind.JapaneseSubtitle;
+        var fontSize = item.Kind switch
+        {
+            PreviewOverlayKind.EnglishSubtitle => isFullPreview ? 26 : 18,
+            PreviewOverlayKind.JapaneseSubtitle => isFullPreview ? 20 : 15,
+            _ => isFullPreview ? 18 : 13
+        };
+
+        var border = new Border
+        {
+            Background = isSubtitle
+                ? new SolidColorBrush(Color.FromArgb(0xB0, 0x00, 0x00, 0x00))
+                : new SolidColorBrush(Color.FromArgb(0xC0, 0x0B, 0x11, 0x1A)),
+            BorderBrush = item.HasHighlight
+                ? CreateBrush(_subtitleTagHighlightColor)
+                : isSubtitle ? Brushes.Transparent : new SolidColorBrush(Color.FromRgb(0x5D, 0xE0, 0xD0)),
+            BorderThickness = item.HasHighlight || !isSubtitle ? new Thickness(1) : new Thickness(0),
+            CornerRadius = new CornerRadius(6),
+            Padding = isFullPreview ? new Thickness(18, 10, 18, 10) : new Thickness(12, 7, 12, 7),
+            Margin = new Thickness(0, 3, 0, 3),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Child = new TextBlock
+            {
+                Text = item.Text,
+                Foreground = isSubtitle
+                    ? isJapanese ? new SolidColorBrush(Color.FromRgb(0xE0, 0xE7, 0xF0)) : Brushes.White
+                    : new SolidColorBrush(Color.FromRgb(0xEA, 0xFB, 0xF8)),
+                FontSize = fontSize,
+                FontWeight = item.Kind == PreviewOverlayKind.EnglishSubtitle ? FontWeights.SemiBold : FontWeights.Normal,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap
+            }
+        };
+
+        if (isSubtitle && !isFullPreview)
+        {
+            border.Cursor = Cursors.Hand;
+            border.MouseLeftButtonUp += OnPreviewSubtitleClicked;
+        }
+
+        return border;
+    }
+
+    private void UpdatePreviewLearningNoteOverlay(TimeSpan position, IReadOnlyList<PreviewSubtitleLine> lines)
+    {
+        var noteText = CreateLearningNoteOverlayText(position, lines);
+        if (noteText is null)
+        {
+            HidePreviewLearningNoteOverlay();
+            return;
+        }
+
+        PreviewLearningNoteTextBlock.Text = noteText;
+        PreviewLearningNoteOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void HidePreviewLearningNoteOverlay()
+    {
+        PreviewLearningNoteTextBlock.Text = string.Empty;
+        PreviewLearningNoteOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void UpdateFullPreviewLearningNoteOverlay(TimeSpan position, IReadOnlyList<PreviewSubtitleLine> lines)
+    {
+        var noteText = CreateLearningNoteOverlayText(position, lines);
+        if (noteText is null)
+        {
+            HideFullPreviewLearningNoteOverlay();
+            return;
+        }
+
+        FullPreviewLearningNoteTextBlock.Text = noteText;
+        FullPreviewLearningNoteOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void HideFullPreviewLearningNoteOverlay()
+    {
+        FullPreviewLearningNoteTextBlock.Text = string.Empty;
+        FullPreviewLearningNoteOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private string? CreateLearningNoteOverlayText(TimeSpan position, IReadOnlyList<PreviewSubtitleLine> lines)
+    {
+        if (!_showLearningNotes)
+        {
+            return null;
+        }
+
+        var state = FindLearningNoteState(position, lines);
+        if (state is null)
+        {
+            return null;
+        }
+
+        var parts = new List<string>();
+        if (NormalizeOptionalText(state.AiNote) is { } aiNote)
+        {
+            parts.Add("AI: " + aiNote);
+        }
+
+        if (NormalizeOptionalText(state.Note) is { } note)
+        {
+            parts.Add("MEMO: " + note);
+        }
+
+        return parts.Count == 0 ? null : string.Join(Environment.NewLine, parts);
+    }
+
+    private SubtitleCueLearningState? FindLearningNoteState(TimeSpan position, IReadOnlyList<PreviewSubtitleLine> lines)
+    {
+        foreach (var line in lines)
+        {
+            if (IsEnglishSubtitleTrack(line.Track)
+                && FindCueLearningState(line.Track, line.Cue) is { } state
+                && HasLearningNote(state))
+            {
+                return state;
+            }
+        }
+
+        if (_selectedMovie is not null)
+        {
+            var learningTrack = _previewSubtitleTrack is not null
+                ? FindSubtitleTrackByRole(_selectedMovie, _previewSubtitleTrack, SubtitleTrackRole.LearningTarget)
+                : _selectedMovie.SubtitleTracks.FirstOrDefault(IsEnglishSubtitleTrack);
+            if (learningTrack is not null
+                && FindActiveCue(learningTrack, position) is { } cue
+                && FindCueLearningState(learningTrack, cue) is { } state
+                && HasLearningNote(state))
+            {
+                return state;
+            }
+        }
+
+        foreach (var line in lines)
+        {
+            if (FindCueLearningState(line.Track, line.Cue) is { } state && HasLearningNote(state))
+            {
+                return state;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasLearningNote(SubtitleCueLearningState state)
+    {
+        return !string.IsNullOrWhiteSpace(state.AiNote) || !string.IsNullOrWhiteSpace(state.Note);
+    }
+
+    private static bool IsJapaneseSubtitleTrack(SubtitleTrack track)
+    {
+        return track.Role == SubtitleTrackRole.Translation
+            || string.Equals(track.Language, "ja", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(track.Language, "jp", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(track.Language, "jpn", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static OverlayPlacement ParseOverlayPosition(string? position)
+    {
+        var normalized = NormalizeOverlayPosition(position, DefaultEnglishSubtitleOverlayPosition);
+        var side = normalized.StartsWith("above", StringComparison.OrdinalIgnoreCase)
+            ? OverlaySide.Above
+            : OverlaySide.Below;
+        var orderText = normalized[^1].ToString();
+        var order = int.TryParse(orderText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedOrder)
+            ? Math.Clamp(parsedOrder, 1, 4)
+            : 1;
+        return new OverlayPlacement(side, order);
+    }
+
+    private static string NormalizeOverlayPosition(string? position, string fallback)
+    {
+        var normalized = NormalizeOptionalText(position)?.ToLowerInvariant();
+        if (normalized is "above1" or "above2" or "above3" or "above4"
+            or "below1" or "below2" or "below3" or "below4")
+        {
+            return normalized;
+        }
+
+        return fallback;
+    }
+
+    private void SetDefaultOverlayPositions()
+    {
+        _englishSubtitleOverlayPosition = DefaultEnglishSubtitleOverlayPosition;
+        _japaneseSubtitleOverlayPosition = DefaultJapaneseSubtitleOverlayPosition;
+        _aiNoteOverlayPosition = DefaultAiNoteOverlayPosition;
+        _userNoteOverlayPosition = DefaultUserNoteOverlayPosition;
+    }
+
+    private void ApplyOverlayPositionComboBoxes()
+    {
+        EnglishSubtitlePositionComboBox.SelectedValue = _englishSubtitleOverlayPosition;
+        JapaneseSubtitlePositionComboBox.SelectedValue = _japaneseSubtitleOverlayPosition;
+        AiNotePositionComboBox.SelectedValue = _aiNoteOverlayPosition;
+        UserNotePositionComboBox.SelectedValue = _userNoteOverlayPosition;
+    }
+
+    private void ReadOverlayPositionComboBoxes()
+    {
+        _englishSubtitleOverlayPosition = NormalizeOverlayPosition(
+            EnglishSubtitlePositionComboBox.SelectedValue as string,
+            DefaultEnglishSubtitleOverlayPosition);
+        _japaneseSubtitleOverlayPosition = NormalizeOverlayPosition(
+            JapaneseSubtitlePositionComboBox.SelectedValue as string,
+            DefaultJapaneseSubtitleOverlayPosition);
+        _aiNoteOverlayPosition = NormalizeOverlayPosition(
+            AiNotePositionComboBox.SelectedValue as string,
+            DefaultAiNoteOverlayPosition);
+        _userNoteOverlayPosition = NormalizeOverlayPosition(
+            UserNotePositionComboBox.SelectedValue as string,
+            DefaultUserNoteOverlayPosition);
+    }
+
+    private void UpdatePlaybackButtonContent()
+    {
+        PauseButton.Content = _isPreviewPlaying ? "一時停止" : "再開";
+        FullPreviewPauseButton.Content = _isFullPreviewPlaying ? "一時停止" : "再開";
+    }
+
+    private static bool IsInteractiveInputFocused(DependencyObject? source)
+    {
+        while (source is not null)
+        {
+            if (source is TextBoxBase
+                or System.Windows.Controls.ComboBox
+                or ButtonBase
+                or System.Windows.Controls.Slider
+                or System.Windows.Controls.DataGrid)
+            {
+                return true;
+            }
+
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return false;
     }
 
     private List<PreviewSubtitleLine> CreatePreviewSubtitleLines(TimeSpan position)
@@ -1744,12 +3122,15 @@ public partial class MainWindow
         }
 
         PreviewPlayer.Play();
+        _isPreviewPlaying = true;
         _previewTimer.Start();
+        UpdatePlaybackButtonContent();
         SetStatus("プレビュー再生中です。");
     }
 
     private void JumpPreviewTo(TimeSpan position)
     {
+        _previewStopAt = null;
         if (_selectedMovie?.Video.CachePath is null || !File.Exists(_selectedMovie.Video.CachePath))
         {
             SetStatus("プレビューできる動画ファイルがありません。");
@@ -1764,7 +3145,9 @@ public partial class MainWindow
 
         SeekPreviewTo(position);
         PreviewPlayer.Play();
+        _isPreviewPlaying = true;
         _previewTimer.Start();
+        UpdatePlaybackButtonContent();
     }
 
     private void StartFullPreview(TimeSpan? startPosition = null)
@@ -1787,8 +3170,40 @@ public partial class MainWindow
         }
 
         FullPreviewPlayer.Play();
+        _isFullPreviewPlaying = true;
         _previewTimer.Start();
+        UpdatePlaybackButtonContent();
         SetStatus("フルプレビュー再生中です。");
+    }
+
+    private void TogglePreviewPlayback()
+    {
+        if (_isPreviewPlaying)
+        {
+            PreviewPlayer.Pause();
+            _isPreviewPlaying = false;
+            UpdatePreviewSeekFromPlayer();
+            UpdatePlaybackButtonContent();
+            SetStatus("プレビューを一時停止しました。");
+            return;
+        }
+
+        StartPreview(PreviewPlayer.Source is null ? null : PreviewPlayer.Position);
+    }
+
+    private void ToggleFullPreviewPlayback()
+    {
+        if (_isFullPreviewPlaying)
+        {
+            FullPreviewPlayer.Pause();
+            _isFullPreviewPlaying = false;
+            UpdateFullPreviewSeekFromPlayer();
+            UpdatePlaybackButtonContent();
+            SetStatus("フルプレビューを一時停止しました。");
+            return;
+        }
+
+        StartFullPreview(FullPreviewPlayer.Source is null ? null : FullPreviewPlayer.Position);
     }
 
     private void SelectSceneRow(string cueId)
@@ -1947,12 +3362,14 @@ public partial class MainWindow
         ObservableCollection<TagDefinitionRow> movieTags,
         ObservableCollection<TagDefinitionRow> subtitleTags)
     {
+        var maxWindowHeight = Math.Max(360, SystemParameters.WorkArea.Height - 80);
         var window = new Window
         {
             Title = "タグ管理",
             Owner = this,
             Width = 720,
-            Height = 460,
+            Height = 520,
+            MaxHeight = maxWindowHeight,
             MinWidth = 620,
             MinHeight = 360,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -1960,8 +3377,8 @@ public partial class MainWindow
             Foreground = System.Windows.Media.Brushes.White
         };
 
-        var movieList = new System.Windows.Controls.ListBox { ItemsSource = movieTags, DisplayMemberPath = nameof(TagDefinitionRow.Name), Margin = new Thickness(0, 8, 0, 8) };
-        var subtitleList = new System.Windows.Controls.ListBox { ItemsSource = subtitleTags, DisplayMemberPath = nameof(TagDefinitionRow.Name), Margin = new Thickness(0, 8, 0, 8) };
+        var movieList = CreateTagDefinitionListBox(movieTags);
+        var subtitleList = CreateTagDefinitionListBox(subtitleTags);
         var moviePanel = CreateTagScopePanel("動画タグ", movieTags, movieList);
         var subtitlePanel = CreateTagScopePanel("字幕タグ", subtitleTags, subtitleList);
 
@@ -2007,8 +3424,28 @@ public partial class MainWindow
         buttons.Children.Add(cancelButton);
         content.Children.Add(buttons);
 
-        window.Content = content;
+        window.Content = new ScrollViewer
+        {
+            Content = content,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
         return window;
+    }
+
+    private static System.Windows.Controls.ListBox CreateTagDefinitionListBox(ObservableCollection<TagDefinitionRow> tags)
+    {
+        var listBox = new System.Windows.Controls.ListBox
+        {
+            ItemsSource = tags,
+            DisplayMemberPath = nameof(TagDefinitionRow.Name),
+            Margin = new Thickness(0, 8, 0, 8),
+            MinHeight = 180
+        };
+
+        ScrollViewer.SetVerticalScrollBarVisibility(listBox, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(listBox, ScrollBarVisibility.Disabled);
+        return listBox;
     }
 
     private FrameworkElement CreateTagScopePanel(
@@ -2117,6 +3554,244 @@ public partial class MainWindow
         throw new FileNotFoundException("字幕生成に使える動画ファイルが見つかりません。", movie.Video.FileName);
     }
 
+    private string GetMovieThumbnailPath(string movieId)
+    {
+        Directory.CreateDirectory(_paths.ThumbnailCachePath);
+        return Path.Combine(_paths.ThumbnailCachePath, $"{SanitizeFileName(movieId)}.jpg");
+    }
+
+    private static async Task CreateThumbnailAsync(string videoPath, string outputPath, TimeSpan position)
+    {
+        var ffmpegPath = ResolveFfmpegPath();
+        var directory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var tempPath = outputPath + ".tmp.jpg";
+        if (File.Exists(tempPath))
+        {
+            File.Delete(tempPath);
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            UseShellExecute = false,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("-hide_banner");
+        startInfo.ArgumentList.Add("-loglevel");
+        startInfo.ArgumentList.Add("error");
+        startInfo.ArgumentList.Add("-y");
+        startInfo.ArgumentList.Add("-ss");
+        startInfo.ArgumentList.Add(Math.Max(0, position.TotalSeconds).ToString("0.###", CultureInfo.InvariantCulture));
+        startInfo.ArgumentList.Add("-i");
+        startInfo.ArgumentList.Add(videoPath);
+        startInfo.ArgumentList.Add("-frames:v");
+        startInfo.ArgumentList.Add("1");
+        startInfo.ArgumentList.Add("-vf");
+        startInfo.ArgumentList.Add("scale=640:-2:force_original_aspect_ratio=decrease");
+        startInfo.ArgumentList.Add("-q:v");
+        startInfo.ArgumentList.Add("3");
+        startInfo.ArgumentList.Add(tempPath);
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("ffmpegを起動できませんでした。");
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            TryKill(process);
+            throw new TimeoutException("ffmpegのサムネイル作成がタイムアウトしました。動画ファイルまたは指定位置を確認してください。");
+        }
+
+        var output = await outputTask;
+        var error = await errorTask;
+        if (process.ExitCode != 0 || !File.Exists(tempPath))
+        {
+            var message = string.Join(
+                Environment.NewLine,
+                new[] { error, output }.Where(text => !string.IsNullOrWhiteSpace(text)));
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(message)
+                    ? "ffmpegがサムネイルを作成できませんでした。"
+                    : message.Trim());
+        }
+
+        File.Move(tempPath, outputPath, overwrite: true);
+    }
+
+    private static string ResolveFfmpegPath()
+    {
+        foreach (var envName in new[] { "COFFEEMOVIE_FFMPEG_PATH", "FFMPEG_PATH" })
+        {
+            var configuredPath = Environment.GetEnvironmentVariable(envName);
+            if (!string.IsNullOrWhiteSpace(configuredPath) && File.Exists(configuredPath))
+            {
+                return configuredPath;
+            }
+        }
+
+        var paths = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var directory in paths)
+        {
+            var candidate = Path.Combine(directory, "ffmpeg.exe");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new FileNotFoundException(
+            "ffmpeg.exe が見つかりません。PATHにffmpegを追加するか、COFFEEMOVIE_FFMPEG_PATH に ffmpeg.exe のフルパスを設定してください。");
+    }
+
+    private static void TryKill(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+            // Best effort cleanup.
+        }
+    }
+
+    private string ResolveEnglishSubtitlePath(Movie movie, string outputDirectory, string baseName)
+    {
+        var outputCandidate = Path.Combine(outputDirectory, baseName + ".en.srt");
+        if (File.Exists(outputCandidate))
+        {
+            return outputCandidate;
+        }
+
+        var selectedTrackPath = _previewSubtitleTrack is not null
+            && movie.SubtitleTracks.Any(track => string.Equals(track.Id, _previewSubtitleTrack.Id, StringComparison.Ordinal))
+            && IsEnglishSubtitleTrack(_previewSubtitleTrack)
+                ? ResolveSubtitleTrackFilePath(_previewSubtitleTrack)
+                : null;
+        if (selectedTrackPath is not null)
+        {
+            return selectedTrackPath;
+        }
+
+        foreach (var track in movie.SubtitleTracks.Where(IsEnglishSubtitleTrack))
+        {
+            if (ResolveSubtitleTrackFilePath(track) is { } trackPath)
+            {
+                return trackPath;
+            }
+        }
+
+        throw new FileNotFoundException("日本語訳に使う英語字幕(.en.srt)が見つかりません。先に英語字幕を生成するか、英語字幕トラックを取り込んでください。", outputCandidate);
+    }
+
+    private static bool IsEnglishSubtitleTrack(SubtitleTrack track)
+    {
+        return track.Role == SubtitleTrackRole.LearningTarget
+            || string.Equals(track.Language, "en", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ResolveSubtitleTrackFilePath(SubtitleTrack track)
+    {
+        if (!string.IsNullOrWhiteSpace(track.SourceUri))
+        {
+            if (File.Exists(track.SourceUri))
+            {
+                return track.SourceUri;
+            }
+
+            if (Uri.TryCreate(track.SourceUri, UriKind.Absolute, out var sourceUri)
+                && sourceUri.IsFile
+                && File.Exists(sourceUri.LocalPath))
+            {
+                return sourceUri.LocalPath;
+            }
+        }
+
+        return !string.IsNullOrWhiteSpace(track.LocalPath) && File.Exists(track.LocalPath)
+            ? track.LocalPath
+            : null;
+    }
+
+    private static string EnsureFileAvailableInWorkingDirectory(string sourcePath, string workingDirectory)
+    {
+        var sourceFullPath = Path.GetFullPath(sourcePath);
+        var workingFullPath = NormalizeDirectoryPath(workingDirectory);
+        var sourceDirectory = Path.GetDirectoryName(sourceFullPath);
+        if (sourceDirectory is not null
+            && string.Equals(NormalizeDirectoryPath(sourceDirectory), workingFullPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return sourceFullPath;
+        }
+
+        var destinationPath = Path.Combine(workingFullPath, Path.GetFileName(sourceFullPath));
+        if (!string.Equals(sourceFullPath, Path.GetFullPath(destinationPath), StringComparison.OrdinalIgnoreCase))
+        {
+            File.Copy(sourceFullPath, destinationPath, overwrite: true);
+        }
+
+        return destinationPath;
+    }
+
+    private static string FormatExternalProcessPath(string path, string workingDirectory, bool preferRelativePath)
+    {
+        if (!preferRelativePath)
+        {
+            return path;
+        }
+
+        var relativePath = Path.GetRelativePath(workingDirectory, path);
+        return IsSafeRelativePath(relativePath)
+            ? relativePath
+            : path;
+    }
+
+    private static string FormatExternalProcessDirectory(string path, string workingDirectory, bool preferRelativePath)
+    {
+        if (!preferRelativePath)
+        {
+            return path;
+        }
+
+        var relativePath = Path.GetRelativePath(workingDirectory, path);
+        if (relativePath == ".")
+        {
+            return ".";
+        }
+
+        return IsSafeRelativePath(relativePath)
+            ? relativePath
+            : path;
+    }
+
+    private static bool IsSafeRelativePath(string path)
+    {
+        return !Path.IsPathRooted(path)
+            && path != ".."
+            && !path.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            && !path.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeDirectoryPath(string path)
+    {
+        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
     private string GetDefaultSubtitleGenerationDirectory(Movie? movie = null)
     {
         if (!string.IsNullOrWhiteSpace(WhisperOutputDirectoryTextBox.Text))
@@ -2175,6 +3850,154 @@ public partial class MainWindow
         }
     }
 
+    private static string ApplyArgumentTemplate(string template, IReadOnlyDictionary<string, string> replacements)
+    {
+        var result = template;
+        foreach (var (key, value) in replacements)
+        {
+            result = result.Replace("{" + key + "}", value, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return result;
+    }
+
+    private static ProcessStartInfo CreateTranslationProcessStartInfo(
+        string translationCommand,
+        IReadOnlyList<string> translationArguments,
+        string workingDirectory,
+        string? codexModel = null)
+    {
+        var fileName = translationCommand;
+        var arguments = translationArguments;
+        if (IsCodexSparkCommand(translationCommand))
+        {
+            fileName = ResolveCodexExecutable();
+            arguments = EnsureCodexExecArguments(translationArguments, codexModel);
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = fileName,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+            CreateNoWindow = true,
+            WorkingDirectory = Directory.Exists(workingDirectory)
+                ? workingDirectory
+                : Environment.CurrentDirectory
+        };
+
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        startInfo.Environment["PYTHONIOENCODING"] = "utf-8";
+        return startInfo;
+    }
+
+    private static bool IsCodexSparkCommand(string command)
+    {
+        return string.Equals(command, DefaultTranslationCommand, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static List<string> EnsureCodexExecArguments(IReadOnlyList<string> arguments, string? codexModel)
+    {
+        List<string> result;
+        if (arguments.Count > 0
+            && string.Equals(arguments[0], "exec", StringComparison.OrdinalIgnoreCase))
+        {
+            result = arguments.ToList();
+        }
+        else
+        {
+            result = ["exec", .. arguments];
+        }
+
+        var model = NormalizeOptionalText(codexModel) ?? DefaultCodexSparkModel;
+        if (!HasCodexModelArgument(result))
+        {
+            result.Insert(1, model);
+            result.Insert(1, "-m");
+        }
+
+        return result;
+    }
+
+    private static bool HasCodexModelArgument(IReadOnlyList<string> arguments)
+    {
+        for (var index = 0; index < arguments.Count; index++)
+        {
+            var argument = arguments[index];
+            if (string.Equals(argument, "-m", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(argument, "--model", StringComparison.OrdinalIgnoreCase)
+                || argument.StartsWith("--model=", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ResolveCodexExecutable()
+    {
+        var configuredPath = TryReadCodexCliPathFromConfig();
+        if (configuredPath is not null)
+        {
+            return configuredPath;
+        }
+
+        var pathValue = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        foreach (var directory in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(directory, "codex.exe");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return "codex";
+    }
+
+    private static string? TryReadCodexCliPathFromConfig()
+    {
+        var configPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".codex",
+            "config.toml");
+        if (!File.Exists(configPath))
+        {
+            return null;
+        }
+
+        foreach (var line in File.ReadLines(configPath))
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("CODEX_CLI_PATH", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var separatorIndex = trimmed.IndexOf('=');
+            if (separatorIndex < 0)
+            {
+                continue;
+            }
+
+            var value = trimmed[(separatorIndex + 1)..].Trim().Trim('"', '\'');
+            if (File.Exists(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
     private static void BackupExistingFile(string path)
     {
         if (!File.Exists(path))
@@ -2186,6 +4009,33 @@ public partial class MainWindow
         var name = Path.GetFileName(path);
         var backupPath = Path.Combine(directory, $"{name}.{DateTime.Now:yyyyMMddHHmmss}.bak");
         File.Move(path, backupPath);
+    }
+
+    private static DateTime PrepareGeneratedOutputPath(string path)
+    {
+        var startedAtUtc = DateTime.UtcNow;
+        BackupExistingFile(path);
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+
+        return startedAtUtc;
+    }
+
+    private static void EnsureGeneratedOutputIsFresh(string path, DateTime startedAtUtc, string message)
+    {
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException(message, path);
+        }
+
+        var lastWriteUtc = File.GetLastWriteTimeUtc(path);
+        if (lastWriteUtc < startedAtUtc.AddSeconds(-2))
+        {
+            throw new InvalidOperationException(
+                $"{message} The existing output was not updated: {path}");
+        }
     }
 
     private async Task PumpProcessOutputAsync(StreamReader reader)
@@ -2345,14 +4195,17 @@ public partial class MainWindow
         _previewTimer.Stop();
         PreviewPlayer.Stop();
         _playPreviewWhenMediaOpened = false;
+        _isPreviewPlaying = false;
         _isPreviewMediaOpened = false;
         PreviewPlayer.Source = null;
         ResetPreviewSeek();
         FullPreviewPlayer.Stop();
         _playFullPreviewWhenMediaOpened = false;
+        _isFullPreviewPlaying = false;
         _isFullPreviewMediaOpened = false;
         FullPreviewPlayer.Source = null;
         ResetFullPreviewSeek();
+        UpdatePlaybackButtonContent();
         if (!string.IsNullOrWhiteSpace(nextPath) && File.Exists(nextPath))
         {
             PreviewPlayer.Source = new Uri(nextPath);
@@ -2373,6 +4226,7 @@ public partial class MainWindow
         {
             _previewTimer.Stop();
             PreviewPlayer.Stop();
+            _isPreviewPlaying = false;
             _isPreviewMediaOpened = false;
             _playPreviewWhenMediaOpened = playWhenReady;
             ResetPreviewSeek();
@@ -2409,6 +4263,7 @@ public partial class MainWindow
         if (!isSameSource)
         {
             FullPreviewPlayer.Stop();
+            _isFullPreviewPlaying = false;
             _isFullPreviewMediaOpened = false;
             _playFullPreviewWhenMediaOpened = playWhenReady;
             ResetFullPreviewSeek();
@@ -2462,7 +4317,17 @@ public partial class MainWindow
             return;
         }
 
-        SetPreviewSeek(PreviewPlayer.Position);
+        var position = PreviewPlayer.Position;
+        if (_previewStopAt is { } stopAt && position >= stopAt)
+        {
+            _previewStopAt = null;
+            PreviewPlayer.Pause();
+            _isPreviewPlaying = false;
+            UpdatePlaybackButtonContent();
+            SetStatus("サムネイル位置の5秒再生を停止しました。");
+        }
+
+        SetPreviewSeek(position);
     }
 
     private void BeginPreviewSeek()
@@ -2707,6 +4572,13 @@ public partial class MainWindow
         return $"{FormatTimestamp(position)} / {FormatTimestamp(duration)}";
     }
 
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        return elapsed.TotalHours >= 1
+            ? string.Create(CultureInfo.InvariantCulture, $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}")
+            : string.Create(CultureInfo.InvariantCulture, $"{elapsed.Minutes:00}:{elapsed.Seconds:00}");
+    }
+
     private static string NormalizePreviewSubtitleText(string text)
     {
         return text.Replace("\r\n", "\n", StringComparison.Ordinal)
@@ -2722,6 +4594,9 @@ public partial class MainWindow
             Title = movie.Title;
             Detail = $"{movie.SubtitleTracks.Count} subtitle / {movie.SceneMarkers.Count} scene";
             CacheState = movie.Video.HasLocalCache ? "cached" : "not cached";
+            ThumbnailPath = !string.IsNullOrWhiteSpace(movie.Video.ThumbnailPath) && File.Exists(movie.Video.ThumbnailPath)
+                ? movie.Video.ThumbnailPath
+                : null;
         }
 
         public string MovieId { get; }
@@ -2731,6 +4606,8 @@ public partial class MainWindow
         public string Detail { get; }
 
         public string CacheState { get; }
+
+        public string? ThumbnailPath { get; }
     }
 
     private sealed class SubtitleRow
@@ -2759,6 +4636,42 @@ public partial class MainWindow
     }
 
     private sealed record PreviewSubtitleLine(SubtitleTrack Track, SubtitleCue Cue);
+
+    private enum PreviewOverlayKind
+    {
+        EnglishSubtitle,
+        JapaneseSubtitle,
+        AiNote,
+        UserNote
+    }
+
+    private enum OverlaySide
+    {
+        Above,
+        Below
+    }
+
+    private sealed record OverlayPlacement(OverlaySide Side, int Order);
+
+    private sealed record PositionedOverlayItem(PreviewOverlayItem Item, OverlayPlacement Placement);
+
+    private sealed record PreviewOverlayItem(
+        PreviewOverlayKind Kind,
+        string Text,
+        string Position,
+        bool HasHighlight)
+    {
+        public int SortPriority => Kind switch
+        {
+            PreviewOverlayKind.EnglishSubtitle => 0,
+            PreviewOverlayKind.JapaneseSubtitle => 1,
+            PreviewOverlayKind.AiNote => 2,
+            PreviewOverlayKind.UserNote => 3,
+            _ => 4
+        };
+    }
+
+    private sealed record LearningNoteImportRow(int Index, string? Cefr, string? Note);
 
     private sealed class TagDefinitionRow
     {
@@ -2802,6 +4715,7 @@ public partial class MainWindow
             ListeningAccuracy = FormatAccuracy(learningState?.Listening.LastAccuracy);
             ShadowingAccuracy = FormatAccuracy(learningState?.Shadowing.LastAccuracy);
             Tags = learningState is null ? string.Empty : string.Join(", ", learningState.Tags);
+            AiNote = learningState?.AiNote ?? string.Empty;
             Note = learningState?.Note ?? string.Empty;
             RowBackgroundBrush = rowBackgroundBrush;
         }
@@ -2827,6 +4741,8 @@ public partial class MainWindow
         public string ShadowingAccuracy { get; }
 
         public string Tags { get; set; }
+
+        public string AiNote { get; }
 
         public string Note { get; set; }
 

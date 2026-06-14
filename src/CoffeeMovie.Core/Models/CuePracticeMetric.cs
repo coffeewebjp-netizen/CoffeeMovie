@@ -4,6 +4,10 @@ public sealed class CuePracticeMetric
 {
     public int AttemptCount { get; set; }
 
+    public int OkCount { get; set; }
+
+    public int NgCount { get; set; }
+
     public double? LastAccuracy { get; set; }
 
     public double? BestAccuracy { get; set; }

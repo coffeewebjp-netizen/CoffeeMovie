@@ -16,9 +16,11 @@ The Windows Studio should prioritize:
 - importing large local video files into the CoffeeMovie library
 - importing SRT / WebVTT subtitles and validating cue parsing
 - showing subtitle-backed scene markers before mobile sync
-- exporting `.coffeemovie.json` sidecars for Drive-first metadata checks
+- exporting `.coffeemovie` reader packages plus `.coffeemovie.json` sidecars for Drive-first metadata checks
 
-Current Studio implementation covers the first useful learning-workbench loop: import a video, import or generate subtitles, inspect cues, tag difficult lines, repair cue timing, preview both English and Japanese subtitles, and write sidecar metadata. The next major work item is Japanese subtitle generation as a separate translation runner.
+Current Studio implementation covers the first useful learning-workbench loop: import a video, import or generate subtitles, inspect cues, tag difficult lines, repair cue timing, preview both English and Japanese subtitles, create a thumbnail from the current frame, and write Drive-ready package metadata. Japanese subtitle generation is implemented as an external TranslationRunner boundary so the app can call an AI-AGENT without taking a hard dependency on one provider.
+
+Current Reader implementation covers the first mobile watcher loop: Drive sync configuration, sidecar-first metadata refresh, resumable package download, video playback with independent subtitle/memo overlays, cue notes/tags, and speech-recognition based shadowing practice.
 
 ## Android App Identity
 
@@ -104,14 +106,18 @@ The app should not hard-code one translation provider into the core data model. 
 
 For the current workstation, the known external workflow lives under `D:\英語\subtitile` and uses `py -3.10 -m whisperx` to generate English SRT files. CoffeeMovie should make this configurable rather than baking that path into source.
 
-Japanese translation is best handled by an AI-capable runner rather than a simple dictionary translator because anime subtitles need context, character voice, and natural phrasing. An AI-Agent / codex-spark style adapter is a reasonable first runner, but CoffeeMovie should persist only ordinary `.srt` / `.vtt` outputs so the app remains independent from that agent.
+Japanese translation is best handled by an AI-capable runner rather than a simple dictionary translator because anime subtitles need context, character voice, and natural phrasing. An AI-Agent / codex-spark style adapter is a reasonable runner, but CoffeeMovie should persist only ordinary `.srt` / `.vtt` outputs so the app remains independent from that agent.
 
 Implemented status:
 
 - WhisperX English generation runs from the Studio `字幕生成` tab.
 - The output directory, Python command, launcher arguments, model, language, device, and compute type are saved as Studio preferences.
 - Generated English SRT files are normalized to `.en.srt` and imported through the normal subtitle importer.
-- Japanese translation generation is deliberately not wired yet; it should be implemented behind `TranslationRunner` and produce `.ja.srt` before import.
+- Japanese translation generation runs behind a configurable external `TranslationRunner` command and must produce `.ja.srt` before import.
+- The translation command receives placeholder-expanded paths such as `{input}` for the English SRT and `{output}` for the Japanese SRT.
+- The default translation prompt is based on the successful anime subtitle Skills routine: preserve SRT timing, translate only dialogue text, infer worldbuilding and character voice, avoid direct machine translation, and output valid SRT only.
+- Users can edit the translation prompt and restore the base prompt from Studio.
+- The default runner name is `codex-spark`. In Studio this is a preset that resolves to the local Codex CLI and runs `codex exec` non-interactively for subtitle translation.
 
 ## Cue Learning Model
 
@@ -136,7 +142,7 @@ Each subtitle cue should have a stable `id` and a track-local `index`. Learning 
 
 Accuracy values are normalized as `0.0` to `1.0`. UI can display them as percentages.
 
-The first PC implementation can edit and inspect this metadata. The Android watcher should use the same model for quick cue practice, repeat-after, and shadowing.
+The PC implementation can edit and inspect this metadata. The Android watcher uses the same model for quick cue practice and shadowing, including OK/NG counts, last transcript, and accuracy metrics on the active English cue.
 
 ## Shadowing / Watcher Plan
 
@@ -146,7 +152,7 @@ The Android watcher should offer cue-based practice modes:
 2. Shadowing: play the cue while the user speaks along, preferably with headphones.
 3. Review queue: play only flagged or tagged cues.
 
-The first scoring layer should compare recognized text with the subtitle text. This answers "could I say the line accurately enough to be recognized?" before attempting deeper phoneme-level pronunciation scoring.
+The implemented first scoring layer compares recognized text with the subtitle text. This answers "could I say the line accurately enough to be recognized?" before attempting deeper phoneme-level pronunciation scoring.
 
 Later scoring can add:
 
@@ -157,14 +163,14 @@ Later scoring can add:
 
 ## Cache Strategy
 
-Cache identity should use stable remote metadata where available:
+Cache identity uses stable remote metadata where available:
 
 - Drive file ID
 - Drive modified time
 - size
-- optional content fingerprint when available
+- content fingerprint from the sidecar
 
-The reader should skip video download when the cache entry exists, the local file exists, and the Drive metadata still matches. Subtitle sidecars are small enough to refresh often.
+The reader refreshes sidecars often because they are small. It skips semantic updates when the incoming `contentFingerprint` matches local `SourceContentFingerprint`. It keeps an existing video cache only when the incoming package describes the same video asset.
 
 Suggested local paths:
 
@@ -177,16 +183,23 @@ FileSystem.AppDataDirectory/
   subtitles/<movieId>/<subtitle file>.vtt
 ```
 
-Temporary Drive downloads should live under `FileSystem.CacheDirectory/drive-imports`.
+Temporary and resumable Drive downloads live under the Reader app data/cache drive-import paths. Partial files are reused when the user resumes a failed download.
 
 ## Google Drive Sync Plan
 
-The Drive sync service should:
+CoffeeMovie follows the CoffeeBook handoff shape: Studio writes durable packages to a Google Drive for desktop sync folder, Google Drive moves them through the cloud, and Reader treats Drive as a distribution source rather than as its local database.
+
+The Drive sync service now:
 
 1. List files in the configured folder with `pageSize=1000`.
 2. Prefer `.coffeemovie.json` sidecars for metadata checks.
-3. Compare Drive file ID, modified time, and size against `cache-index.json`.
-4. Download video bytes only when no matching local file exists.
-5. Download or refresh subtitles before opening the player.
+3. Compare sidecar `contentFingerprint` against the local movie shell.
+4. Count unchanged packages separately from added/updated packages.
+5. Download package bytes only when the user needs a missing or updated local cache.
+6. Resume partial package downloads when possible.
 
-This mirrors CoffeeBook's sidecar-first sync idea, but avoids packaging videos into a ZIP because video files are too large for frequent repackaging.
+The `.coffeemovie` package is a ZIP container with the video, subtitles, and `manifest.json`. Video entries are stored without recompression, so packaging is mostly a copy operation rather than a CPU-heavy video encode. The paired `.coffeemovie.json` sidecar contains the same small learning metadata needed to create or compare a library shell without downloading the large package.
+
+Studio computes the same `contentFingerprint` before export. If the existing sidecar in the Drive sync folder has the same fingerprint and the package file exists, Studio skips export so the desktop Drive client has nothing new to upload. If the fingerprint differs, Studio rewrites both files and updates `exportedAt`.
+
+Reader should treat local cue tags, user notes, shadowing counts, and playback state as device-owned learning progress. Package updates may refresh video/subtitle/AI-note metadata, but future merge logic should preserve newer local practice data unless the user explicitly resets or overwrites it.

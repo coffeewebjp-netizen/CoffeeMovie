@@ -20,6 +20,10 @@ public sealed class VideoAsset
 
     public string? CachePath { get; set; }
 
+    public string? ThumbnailPath { get; set; }
+
+    public double? ThumbnailTimestampSeconds { get; set; }
+
     public bool HasLocalCache => !string.IsNullOrWhiteSpace(CachePath);
 }
 
