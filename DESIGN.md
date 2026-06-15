@@ -26,7 +26,7 @@ Current Reader implementation covers the first mobile watcher loop: Drive sync c
 
 The Reader `ApplicationId` is fixed to `net.coffeewebjp.coffeemovie.reader`. Do not change it casually; Google Cloud Android OAuth clients bind this package name together with the signing certificate SHA-1.
 
-Release APK signing uses `.tools/android-signing/CoffeeMovie.Reader.Signing.props` when that file exists. The generated keystore is `.tools/android-signing/coffeemovie-reader-release.jks`. These files are intentionally outside Git and must be backed up separately. Restoring the same two files on another PC keeps the SHA-1 stable, so Android updates and Google Cloud OAuth continue to see the app as the same identity.
+Release APK signing uses `.tools/android-signing/CoffeeMovie.Reader.Signing.props` when that file exists. The canonical CoffeeMovie Reader signing SHA-1 is `B2:1B:F2:42:DC:4F:FC:E7:F9:A5:CE:85:F4:5D:0C:A3:81:ED:29:66`, matching the existing Pixel install and the Google Cloud Android OAuth client. The keystore is `.tools/android-signing/coffeemovie-reader-release.jks`. These files are intentionally outside Git and must be backed up separately. Restoring the same two files on another PC keeps the SHA-1 stable, so Android updates and Google Cloud OAuth continue to see the app as the same identity.
 
 Debug APKs signed with a machine-local debug keystore will have a different SHA-1. For installing over an app from another PC, use the fixed release keystore build.
 

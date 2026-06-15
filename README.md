@@ -110,21 +110,27 @@ net.coffeewebjp.coffeemovie.reader
 
 Google Cloud Android OAuth clients are tied to both package name and signing certificate SHA-1. To avoid a different development PC producing an APK that Android treats as a different app identity, use one shared release keystore for CoffeeMovie Reader.
 
-Create it once:
+Current CoffeeMovie Reader installs use this SHA-1:
 
-```powershell
-cd C:\work\CoffeeMovie
-.\scripts\android\New-CoffeeMovieReaderKeystore.ps1
+```text
+B2:1B:F2:42:DC:4F:FC:E7:F9:A5:CE:85:F4:5D:0C:A3:81:ED:29:66
 ```
 
-This creates:
+The matching signing files are local-only and must be backed up:
 
 ```text
 .tools\android-signing\coffeemovie-reader-release.jks
 .tools\android-signing\CoffeeMovie.Reader.Signing.props
 ```
 
-Register the printed SHA-1 in Google Cloud for package `net.coffeewebjp.coffeemovie.reader`. On another development PC, restore those same two files to the same paths before building Release. Do not recreate them unless you intentionally want a new SHA-1.
+On another development PC, restore those same two files to the same paths before building Release. Do not recreate them unless you intentionally want a new SHA-1, a new Google Cloud Android OAuth registration, and an Android app identity that cannot update the existing install.
+
+Only create a new signing identity for a fresh app install:
+
+```powershell
+cd C:\work\CoffeeMovie
+.\scripts\android\New-CoffeeMovieReaderKeystore.ps1
+```
 
 Release build:
 
