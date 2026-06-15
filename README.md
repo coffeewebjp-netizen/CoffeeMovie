@@ -102,6 +102,8 @@ See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for the curre
 
 ## Stable Android Identity
 
+Canonical Android signing and cross-PC update rules are documented in [docs/ANDROID_SIGNING.md](docs/ANDROID_SIGNING.md). That document takes precedence if there is any confusion.
+
 The Android package name is fixed:
 
 ```text
