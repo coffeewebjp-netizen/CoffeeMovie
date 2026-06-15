@@ -15,6 +15,7 @@ public static class CoffeeMovieSidecarService
         string? contentFingerprint = null)
     {
         var fingerprint = contentFingerprint ?? ComputeContentFingerprint(movie);
+        var thumbnail = CreateThumbnailPayload(movie.Video.ThumbnailPath);
         return new CoffeeMovieSidecar
         {
             SourceMovieId = movie.Id,
@@ -25,6 +26,9 @@ public static class CoffeeMovieSidecarService
             {
                 Id = movie.Id,
                 Title = movie.Title,
+                SeriesTitle = movie.SeriesTitle,
+                SeasonNumber = movie.SeasonNumber,
+                EpisodeNumber = movie.EpisodeNumber,
                 Description = movie.Description,
                 DurationSeconds = movie.Playback.DurationSeconds,
                 Tags = (movie.Tags ?? []).ToList(),
@@ -39,9 +43,9 @@ public static class CoffeeMovieSidecarService
                 SizeBytes = movie.Video.SizeBytes,
                 ModifiedAt = movie.Video.ModifiedAt,
                 ContentFingerprint = movie.Video.ContentFingerprint,
-                ThumbnailFileName = string.IsNullOrWhiteSpace(movie.Video.ThumbnailPath)
-                    ? null
-                    : Path.GetFileName(movie.Video.ThumbnailPath),
+                ThumbnailFileName = thumbnail.FileName,
+                ThumbnailContentType = thumbnail.ContentType,
+                ThumbnailDataBase64 = thumbnail.DataBase64,
                 ThumbnailTimestampSeconds = movie.Video.ThumbnailTimestampSeconds
             },
             Subtitles = movie.SubtitleTracks
@@ -97,6 +101,9 @@ public static class CoffeeMovieSidecarService
         var builder = new StringBuilder();
         builder.AppendLine(movie.Id);
         builder.AppendLine(movie.Title);
+        builder.AppendLine(movie.SeriesTitle ?? string.Empty);
+        builder.AppendLine(movie.SeasonNumber?.ToString() ?? string.Empty);
+        builder.AppendLine(movie.EpisodeNumber?.ToString() ?? string.Empty);
         builder.AppendLine(movie.Description ?? string.Empty);
         builder.AppendLine(movie.Playback.DurationSeconds.ToString("0.###"));
         builder.AppendLine(movie.Video.FileName);
@@ -104,6 +111,12 @@ public static class CoffeeMovieSidecarService
         builder.AppendLine(movie.Video.ModifiedAt?.ToUnixTimeMilliseconds().ToString() ?? string.Empty);
         builder.AppendLine(movie.Video.ContentFingerprint ?? string.Empty);
         builder.AppendLine(movie.Video.ThumbnailTimestampSeconds?.ToString("0.###") ?? string.Empty);
+        var thumbnailFingerprint = ComputeFileFingerprint(movie.Video.ThumbnailPath);
+        if (!string.IsNullOrWhiteSpace(thumbnailFingerprint))
+        {
+            builder.Append("thumbnail-file:");
+            builder.AppendLine(thumbnailFingerprint);
+        }
 
         foreach (var tag in (movie.Tags ?? []).OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase))
         {
@@ -117,6 +130,47 @@ public static class CoffeeMovieSidecarService
         }
 
         return Sha256(builder.ToString());
+    }
+
+    private static ThumbnailPayload CreateThumbnailPayload(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return new ThumbnailPayload(null, null, null);
+        }
+
+        var bytes = File.ReadAllBytes(path);
+        if (bytes.Length == 0)
+        {
+            return new ThumbnailPayload(null, null, null);
+        }
+
+        return new ThumbnailPayload(
+            Path.GetFileName(path),
+            GuessImageContentType(path),
+            Convert.ToBase64String(bytes));
+    }
+
+    private static string? ComputeFileFingerprint(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return null;
+        }
+
+        using var stream = File.OpenRead(path);
+        var bytes = SHA256.HashData(stream);
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private static string GuessImageContentType(string path)
+    {
+        return Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            _ => "image/jpeg"
+        };
     }
 
     public static string ComputeSubtitleFingerprint(SubtitleTrack track)
@@ -182,5 +236,7 @@ public static class CoffeeMovieSidecarService
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
+
+    private sealed record ThumbnailPayload(string? FileName, string? ContentType, string? DataBase64);
 }
 

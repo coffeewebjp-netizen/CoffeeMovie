@@ -44,6 +44,18 @@ public sealed class MoviePlayerPage : ContentPage
     {
         HeightRequest = 240
     };
+    private readonly Image _playerThumbnailImage = new()
+    {
+        Aspect = Aspect.AspectFit,
+        IsVisible = false,
+        InputTransparent = true
+    };
+    private readonly Border _playerThumbnailLayer = new()
+    {
+        BackgroundColor = Colors.Black,
+        InputTransparent = true,
+        IsVisible = false
+    };
     private readonly Switch _englishSubtitleSwitch = new()
     {
         IsToggled = true,
@@ -396,9 +408,11 @@ public sealed class MoviePlayerPage : ContentPage
         _playerMessageLabel.VerticalOptions = LayoutOptions.End;
         _playerMessageLabel.Margin = new Thickness(16, 0, 16, 16);
 
+        _playerThumbnailLayer.Content = _playerThumbnailImage;
+
         var playerLayer = new Grid
         {
-            Children = { _webView, _playerMessageLabel, overlayActions }
+            Children = { _webView, _playerThumbnailLayer, _playerMessageLabel, overlayActions }
         };
 
         var frame = new Border
@@ -660,11 +674,12 @@ public sealed class MoviePlayerPage : ContentPage
         _activeEnglishTrack = FindEnglishTrack(_movie)
             ?? _movie.SubtitleTracks.LastOrDefault(track => track.Cues.Count > 0);
 
-        _titleLabel.Text = _movie.Title;
+        _titleLabel.Text = FormatPlayerTitle(_movie);
         _statusLabel.Text = _movie.SubtitleTracks.Count == 0
             ? "字幕なし"
             : $"{_movie.SubtitleTracks.Count} subtitle / {_movie.SceneMarkers.Count} scene";
 
+        UpdatePlayerThumbnail(_movie, show: true);
         await LoadPlayerHtmlAsync(_movie);
 
         _scenesView.ItemsSource = _movie.SceneMarkers
@@ -762,9 +777,23 @@ public sealed class MoviePlayerPage : ContentPage
         else if (string.Equals(state, "playing", StringComparison.OrdinalIgnoreCase))
         {
             _isPlayerPaused = false;
+            UpdatePlayerThumbnail(_movie, show: false);
         }
 
         UpdatePlayPauseButton();
+    }
+
+    private void UpdatePlayerThumbnail(Movie? movie, bool show)
+    {
+        var path = movie?.Video.ThumbnailPath;
+        var hasThumbnail = !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+        if (hasThumbnail)
+        {
+            _playerThumbnailImage.Source = ImageSource.FromFile(path!);
+        }
+
+        _playerThumbnailImage.IsVisible = show && hasThumbnail;
+        _playerThumbnailLayer.IsVisible = show && hasThumbnail;
     }
 
     private void SelectActiveCue(string cueId)
@@ -1992,5 +2021,14 @@ player.addEventListener('click', event => {
         return value.TotalHours >= 1
             ? $"{(int)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}"
             : $"{value.Minutes:00}:{value.Seconds:00}";
+    }
+
+    private static string FormatPlayerTitle(Movie movie)
+    {
+        var series = string.IsNullOrWhiteSpace(movie.SeriesTitle) ? string.Empty : movie.SeriesTitle;
+        var season = movie.SeasonNumber is null ? string.Empty : $"S{movie.SeasonNumber.Value:00}";
+        var episode = movie.EpisodeNumber is null ? string.Empty : $"E{movie.EpisodeNumber.Value:00}";
+        var prefix = string.Join(' ', new[] { series, season, episode }.Where(part => part.Length > 0));
+        return string.IsNullOrWhiteSpace(prefix) ? movie.Title : $"{prefix} - {movie.Title}";
     }
 }

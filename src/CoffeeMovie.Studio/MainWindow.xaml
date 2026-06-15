@@ -45,12 +45,36 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Text="動画棚" FontSize="16" FontWeight="SemiBold" Margin="14,12,14,8" />
+                    <Grid Grid.Row="1" Margin="14,0,14,8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBox x:Name="MovieSearchTextBox"
+                                 Height="30"
+                                 Margin="0,0,0,6"
+                                 TextChanged="OnMovieFilterChanged"
+                                 ToolTip="タイトル、作品名、Season、Episodeで検索" />
+                        <TextBox x:Name="MovieTagFilterTextBox"
+                                 Grid.Row="1"
+                                 Height="30"
+                                 Margin="0,0,0,6"
+                                 TextChanged="OnMovieFilterChanged"
+                                 ToolTip="動画タグで絞り込み" />
+                        <TextBox x:Name="SubtitleTagFilterTextBox"
+                                 Grid.Row="2"
+                                 Height="30"
+                                 TextChanged="OnMovieFilterChanged"
+                                 ToolTip="字幕タグを含む動画で絞り込み" />
+                    </Grid>
                     <ListBox x:Name="MoviesListBox"
-                             Grid.Row="1"
+                             Grid.Row="2"
                              Background="#0B111A"
                              BorderThickness="0"
                              Foreground="White"
@@ -84,7 +108,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <TextBlock x:Name="SummaryTextBlock" Grid.Row="2" Foreground="{StaticResource MutedBrush}" Margin="14,8,14,12" />
+                    <TextBlock x:Name="SummaryTextBlock" Grid.Row="3" Foreground="{StaticResource MutedBrush}" Margin="14,8,14,12" />
                 </Grid>
             </Border>
 
@@ -109,6 +133,26 @@
                         <StackPanel>
                             <TextBlock Text="タイトル" Foreground="{StaticResource MutedBrush}" FontSize="12" />
                             <TextBox x:Name="TitleTextBox" Margin="0,5,16,0" LostFocus="OnTitleLostFocus" />
+                            <Grid Margin="0,8,16,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="2*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="作品名" Foreground="{StaticResource MutedBrush}" FontSize="12" />
+                                <TextBlock Grid.Column="1" Text="Season" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="8,0,0,0" />
+                                <TextBlock Grid.Column="2" Text="Episode" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="8,0,0,0" />
+                                <TextBlock Grid.Column="3" Text="動画タグ" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="8,0,0,0" />
+                                <TextBox x:Name="SeriesTitleTextBox" Grid.Row="1" Margin="0,4,0,0" LostFocus="OnMovieMetadataLostFocus" />
+                                <TextBox x:Name="SeasonNumberTextBox" Grid.Row="1" Grid.Column="1" Margin="8,4,0,0" LostFocus="OnMovieMetadataLostFocus" TextAlignment="Right" />
+                                <TextBox x:Name="EpisodeNumberTextBox" Grid.Row="1" Grid.Column="2" Margin="8,4,0,0" LostFocus="OnMovieMetadataLostFocus" TextAlignment="Right" />
+                                <TextBox x:Name="MovieTagsTextBox" Grid.Row="1" Grid.Column="3" Margin="8,4,0,0" LostFocus="OnMovieMetadataLostFocus" ToolTip="カンマ区切りで動画タグを入力" />
+                            </Grid>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
                             <Button x:Name="AddSubtitleButton" Content="字幕を追加" Click="OnImportSubtitleClicked" />
@@ -426,6 +470,21 @@
                                       VerticalAlignment="Center" />
                         </StackPanel>
 
+                        <StackPanel Grid.Row="0"
+                                    Grid.Column="0"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Margin="48,0,0,8">
+                            <TextBlock Text="字幕タグ"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0" />
+                            <TextBox x:Name="SceneTagFilterTextBox"
+                                     Width="132"
+                                     TextChanged="OnSceneFilterChanged"
+                                     ToolTip="カンマ区切りで字幕タグを絞り込み" />
+                        </StackPanel>
+
                         <Button x:Name="RemoveSubtitleButton"
                                 Grid.Row="0"
                                 Grid.Column="0"
@@ -492,8 +551,8 @@
                     </TabItem>
                     <TabItem x:Name="SubtitleGenerationTabItem" Header="字幕生成">
                         <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled">
-                        <Grid Margin="16">
+                                      HorizontalScrollBarVisibility="Auto">
+                        <Grid Margin="16" MinWidth="1280">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -505,6 +564,7 @@
                                 <TextBlock Text="対象動画" Foreground="{StaticResource MutedBrush}" FontSize="12" />
                                 <TextBlock x:Name="GenerationMovieTextBlock"
                                            Text="動画を選択してください"
+                                           Foreground="White"
                                            FontSize="16"
                                            FontWeight="SemiBold"
                                            TextTrimming="CharacterEllipsis"
@@ -656,7 +716,7 @@
                                 <TextBlock Grid.Row="9"
                                            Grid.Column="2"
                                            Grid.ColumnSpan="4"
-                                           Text="対象者レベル未満の通常表現はコメント不要として埋め、難語・世界観語・慣用句だけAIメモに残します。"
+                                           Text="対象者レベル未満の通常表現は出力せず、難語・世界観語・慣用句だけAIメモに残します。"
                                            Foreground="{StaticResource MutedBrush}"
                                            FontSize="12"
                                            TextWrapping="Wrap"
@@ -751,8 +811,9 @@
                             <TextBox x:Name="SubtitleGenerationLogTextBox"
                                      Grid.Row="3"
                                      MinHeight="180"
-                                     TextWrapping="Wrap"
+                                     TextWrapping="NoWrap"
                                      VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
                                      IsReadOnly="True"
                                      FontFamily="Consolas"
                                      FontSize="12" />

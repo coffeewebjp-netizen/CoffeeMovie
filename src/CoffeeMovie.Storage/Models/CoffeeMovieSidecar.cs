@@ -31,6 +31,12 @@ public sealed class CoffeeMovieSidecarMovie
 
     public string Title { get; set; } = string.Empty;
 
+    public string? SeriesTitle { get; set; }
+
+    public int? SeasonNumber { get; set; }
+
+    public int? EpisodeNumber { get; set; }
+
     public string? Description { get; set; }
 
     public double DurationSeconds { get; set; }
@@ -59,6 +65,12 @@ public sealed class CoffeeMovieSidecarVideo
     public string? PackagePath { get; set; }
 
     public string? ThumbnailFileName { get; set; }
+
+    public string? ThumbnailPackagePath { get; set; }
+
+    public string? ThumbnailContentType { get; set; }
+
+    public string? ThumbnailDataBase64 { get; set; }
 
     public double? ThumbnailTimestampSeconds { get; set; }
 }

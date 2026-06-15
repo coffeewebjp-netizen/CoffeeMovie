@@ -16,7 +16,7 @@ CoffeeMovie is a prototype video reader for Android, following the CoffeeBook sp
 
 ## Current Prototype
 
-The Android reader supports Drive-first sync, local video cache import, WebView-backed playback, independent English/Japanese/memo overlays, cue-level notes/tags, and speech-recognition based shadowing practice. SRT subtitles are parsed into cue metadata and converted to WebVTT where a native track file is useful, while the current player renders its own subtitle overlay so English, Japanese, and memo lines can be positioned independently.
+The Android reader supports Drive-first sync, sidecar thumbnail display on the movie shelf, local video cache import, WebView-backed playback, independent English/Japanese/memo overlays, cue-level notes/tags, and speech-recognition based shadowing practice. SRT subtitles are parsed into cue metadata and converted to WebVTT where a native track file is useful, while the current player renders its own subtitle overlay so English, Japanese, and memo lines can be positioned independently.
 
 Windows Studio has grown into the preparation workspace for subtitle-learning workflows. It now supports drag/drop import, preview playback with a seek bar and subtitle overlay, full-size preview playback, paired English/Japanese subtitle display, cue click/double-click jumping, cue-level timing edits, tag/highlight metadata, WhisperX English subtitle generation, external Japanese subtitle translation, AI learning-note generation, thumbnail creation from the current preview frame, and Drive-ready package export.
 

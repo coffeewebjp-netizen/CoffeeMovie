@@ -15,6 +15,11 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Can sync timing edits across paired English/Japanese tracks while keeping text and learning metadata separate.
 - Writes timing edits back to the app-local subtitle copy, generated WebVTT cache, and optionally the original subtitle file.
 - Supports movie-level and subtitle-level tags.
+- Provides direct editing for movie series title, season number, episode number, and movie tags.
+- Groups the movie shelf by series title and season.
+- Filters the movie shelf by text, movie tags, and subtitle tags.
+- Lets movie and subtitle tag fields open a multi-select picker from registered tag definitions.
+- Filters subtitle cue rows by subtitle tags in addition to the flag-only filter.
 - Highlights tagged subtitle rows with a configurable color.
 - Stores cue-level free-form notes, AI notes, listening metrics, and shadowing metrics.
 - Generates English subtitles through a configurable WhisperX command.
@@ -25,7 +30,8 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Saves thumbnail path and thumbnail timestamp on the video asset.
 - Can replay the thumbnail timestamp for five seconds.
 - Exports Drive-ready `.coffeemovie` packages and `.coffeemovie.json` sidecars.
-- Skips package export when the current content fingerprint matches the existing sidecar in the Drive sync folder.
+- Embeds thumbnail images in reader packages and sidecars when a thumbnail exists.
+- Skips package export when the current content fingerprint and thumbnail payload match the existing sidecar in the Drive sync folder.
 
 ## Android Reader
 
@@ -33,6 +39,9 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Supports Google Drive OAuth and folder configuration.
 - Lists `.coffeemovie` packages and paired `.coffeemovie.json` sidecars from the configured Drive folder.
 - Refreshes sidecar metadata before downloading large package bytes.
+- Shows sidecar thumbnail images on the movie shelf before the large package is downloaded.
+- Shows the thumbnail on the player surface while the WebView/video is loading, then hides it when playback starts.
+- Shows the shelf as a collapsible series -> season -> episode tree using series title, season number, and episode number when available.
 - Compares sidecar `contentFingerprint` with the local `SourceContentFingerprint`.
 - Reports Drive sync results as added/updated, unchanged, sidecar-missing, and failed.
 - Keeps existing video cache only when the incoming package describes the same video asset.
@@ -63,26 +72,27 @@ The sidecar is the lightweight comparison file. It contains:
 - `contentFingerprint`
 - `exportedAt`
 - package file name and package size
+- series title, season number, and episode number
 - video metadata
 - subtitle cues
 - cue learning states
+- optional thumbnail image payload
 
 The current diff rule is:
 
 1. Studio computes a package `contentFingerprint`.
-2. If the existing sidecar has the same fingerprint and the package file exists, Studio skips export.
+2. If the existing sidecar has the same fingerprint, package file, and thumbnail payload, Studio skips export.
 3. If the fingerprint differs, Studio rewrites the package and sidecar and updates `exportedAt`.
 4. Reader downloads sidecars first.
 5. If the incoming fingerprint matches local `SourceContentFingerprint`, Reader records it as unchanged.
 6. If the fingerprint differs, Reader updates the local shell and marks the package as updated.
 
-The fingerprint includes movie identity, title, description, video identity fields, thumbnail timestamp, movie tags, subtitle track metadata, cue timing/text, cue tags, notes, AI notes, and listening/shadowing metrics.
+The fingerprint includes movie identity, title, series title, season number, episode number, description, video identity fields, thumbnail timestamp, thumbnail image hash when present, movie tags, subtitle track metadata, cue timing/text, cue tags, notes, AI notes, and listening/shadowing metrics.
 
 File size is used for download progress and cache integrity checks. It is not the primary content-difference signal.
 
 ## Known Gaps
 
-- Android Reader does not yet display package thumbnail images from Drive packages. It currently preserves thumbnail timestamp metadata.
 - Shadowing input audio playback is not implemented because Android `SpeechRecognizer` returns recognition text but not a reusable audio file.
 - Drive sync still downloads sidecars on each sync. This is intentional because sidecars are small and are the authoritative comparison surface.
 - If Google Drive contains duplicate package names, the current list logic may pick the first matching sidecar. The intended workflow is overwrite-in-place from the desktop Drive folder.

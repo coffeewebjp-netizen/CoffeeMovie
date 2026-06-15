@@ -26,7 +26,10 @@ public sealed class ReaderLibraryService
     {
         var library = await _libraryStore.LoadAsync(cancellationToken);
         return library.Movies
-            .OrderByDescending(movie => movie.UpdatedAt)
+            .OrderBy(movie => string.IsNullOrWhiteSpace(movie.SeriesTitle) ? movie.Title : movie.SeriesTitle, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(movie => movie.SeasonNumber ?? int.MaxValue)
+            .ThenBy(movie => movie.EpisodeNumber ?? int.MaxValue)
+            .ThenByDescending(movie => movie.UpdatedAt)
             .ToList();
     }
 
@@ -140,11 +143,13 @@ public sealed class ReaderLibraryService
             && string.Equals(existing.SourceContentFingerprint, sidecar.ContentFingerprint, StringComparison.Ordinal))
         {
             ApplyPackageSourceMetadata(existing, sidecar, package);
+            await ApplySidecarThumbnailAsync(existing, sidecar, cancellationToken);
             await _libraryStore.UpsertMovieAsync(existing, cancellationToken);
             return false;
         }
 
         var movie = CreateMovieFromSidecar(sidecar, package, existing);
+        await ApplySidecarThumbnailAsync(movie, sidecar, cancellationToken);
         await _libraryStore.UpsertMovieAsync(movie, cancellationToken);
         return true;
     }
@@ -159,6 +164,7 @@ public sealed class ReaderLibraryService
         var movie = CreateMovieFromSidecar(manifest, package, existing);
 
         await ExtractPackageFilesAsync(packagePath, manifest, movie, cancellationToken);
+        await ApplySidecarThumbnailAsync(movie, manifest, cancellationToken);
         movie.Video.SourceKind = VideoSourceKind.GoogleDrive;
         movie.Video.SourceUri = package.ContentUri;
         movie.Video.SourceKey = package.ContentUri;
@@ -232,6 +238,14 @@ public sealed class ReaderLibraryService
             ? GuessVideoContentType(videoFileName, null)
             : movie.Video.ContentType;
 
+        if (!string.IsNullOrWhiteSpace(manifest.Video.ThumbnailPackagePath)
+            && archive.GetEntry(manifest.Video.ThumbnailPackagePath) is { } thumbnailEntry)
+        {
+            var thumbnailPath = GetThumbnailCachePath(movie.Id, thumbnailEntry.Name);
+            await ExtractEntryAsync(thumbnailEntry, thumbnailPath, cancellationToken);
+            movie.Video.ThumbnailPath = thumbnailPath;
+        }
+
         var subtitleDirectory = _paths.GetMovieSubtitleDirectory(movie.Id);
         Directory.CreateDirectory(subtitleDirectory);
         foreach (var track in movie.SubtitleTracks)
@@ -302,6 +316,9 @@ public sealed class ReaderLibraryService
         {
             Id = movieId,
             Title = sidecar.Movie.Title,
+            SeriesTitle = sidecar.Movie.SeriesTitle,
+            SeasonNumber = sidecar.Movie.SeasonNumber,
+            EpisodeNumber = sidecar.Movie.EpisodeNumber,
             Description = sidecar.Movie.Description,
             Tags = (sidecar.Movie.Tags ?? []).Where(tag => !string.IsNullOrWhiteSpace(tag)).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
             Playback = existing?.Playback ?? new PlaybackState { DurationSeconds = sidecar.Movie.DurationSeconds },
@@ -395,6 +412,12 @@ public sealed class ReaderLibraryService
             && File.Exists(existing.Video.CachePath))
         {
             movie.Video.CachePath = existing.Video.CachePath;
+        }
+
+        if (!string.IsNullOrWhiteSpace(existing.Video.ThumbnailPath)
+            && File.Exists(existing.Video.ThumbnailPath))
+        {
+            movie.Video.ThumbnailPath = existing.Video.ThumbnailPath;
         }
 
         if (existing.Playback is not null)
@@ -544,6 +567,48 @@ public sealed class ReaderLibraryService
     private static DateTimeOffset? FromUnixMilliseconds(long? value)
     {
         return value is null ? null : DateTimeOffset.FromUnixTimeMilliseconds(value.Value);
+    }
+
+    private async Task ApplySidecarThumbnailAsync(
+        Movie movie,
+        CoffeeMovieSidecar sidecar,
+        CancellationToken cancellationToken)
+    {
+        movie.Video.ThumbnailTimestampSeconds = sidecar.Video.ThumbnailTimestampSeconds;
+
+        if (string.IsNullOrWhiteSpace(sidecar.Video.ThumbnailDataBase64))
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = Convert.FromBase64String(sidecar.Video.ThumbnailDataBase64);
+            if (bytes.Length == 0)
+            {
+                return;
+            }
+
+            var thumbnailPath = GetThumbnailCachePath(movie.Id, sidecar.Video.ThumbnailFileName);
+            Directory.CreateDirectory(_paths.ThumbnailCachePath);
+            await File.WriteAllBytesAsync(thumbnailPath, bytes, cancellationToken);
+            movie.Video.ThumbnailPath = thumbnailPath;
+        }
+        catch (FormatException)
+        {
+            // A bad thumbnail payload should not block metadata sync or video playback.
+        }
+    }
+
+    private string GetThumbnailCachePath(string movieId, string? sourceFileName)
+    {
+        var extension = Path.GetExtension(sourceFileName);
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            extension = ".jpg";
+        }
+
+        return Path.Combine(_paths.ThumbnailCachePath, $"{SanitizeFileName(movieId)}{extension}");
     }
 
     private static string EnsureUniquePath(string path)

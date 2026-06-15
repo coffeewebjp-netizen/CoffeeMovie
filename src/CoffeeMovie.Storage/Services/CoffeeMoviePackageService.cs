@@ -33,11 +33,13 @@ public sealed class CoffeeMoviePackageService
         manifest.SchemaVersion = SchemaVersion;
         manifest.PackageType = "reader";
         manifest.Video.PackagePath = $"video/{CreateSafeFileName(movie.Video.FileName)}";
+        manifest.Video.ThumbnailPackagePath = CreateThumbnailPackagePath(movie.Video.ThumbnailPath);
 
         var existingSidecar = await TryReadSidecarAsync(sidecarPath, cancellationToken);
         if (File.Exists(outputPath)
             && existingSidecar is not null
-            && string.Equals(existingSidecar.ContentFingerprint, manifest.ContentFingerprint, StringComparison.Ordinal))
+            && string.Equals(existingSidecar.ContentFingerprint, manifest.ContentFingerprint, StringComparison.Ordinal)
+            && HasCurrentThumbnailPayload(existingSidecar, manifest))
         {
             var packageSize = new FileInfo(outputPath).Length;
             ReportProgress(progress, "差分なし", packageSize, Math.Max(1, packageSize));
@@ -79,6 +81,23 @@ public sealed class CoffeeMoviePackageService
                 value => writtenBytes += value,
                 () => writtenBytes,
                 cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(movie.Video.ThumbnailPath)
+                && File.Exists(movie.Video.ThumbnailPath)
+                && !string.IsNullOrWhiteSpace(manifest.Video.ThumbnailPackagePath))
+            {
+                await AddFileAsync(
+                    archive,
+                    movie.Video.ThumbnailPath,
+                    manifest.Video.ThumbnailPackagePath,
+                    CompressionLevel.Optimal,
+                    "サムネイルを書き出し中",
+                    progress,
+                    totalBytes,
+                    value => writtenBytes += value,
+                    () => writtenBytes,
+                    cancellationToken);
+            }
 
             foreach (var track in movie.SubtitleTracks)
             {
@@ -132,6 +151,7 @@ public sealed class CoffeeMoviePackageService
             manifest.ContentFingerprint);
         sidecar.PackageType = "reader-sidecar";
         sidecar.Video.PackagePath = manifest.Video.PackagePath;
+        sidecar.Video.ThumbnailPackagePath = manifest.Video.ThumbnailPackagePath;
         foreach (var subtitle in sidecar.Subtitles)
         {
             var manifestSubtitle = manifest.Subtitles.FirstOrDefault(item =>
@@ -291,6 +311,7 @@ public sealed class CoffeeMoviePackageService
     {
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         AddPath(movie.Video.CachePath);
+        AddPath(movie.Video.ThumbnailPath);
         foreach (var track in movie.SubtitleTracks)
         {
             AddPath(track.LocalPath);
@@ -309,6 +330,29 @@ public sealed class CoffeeMoviePackageService
                 paths.Add(path);
             }
         }
+    }
+
+    private static string? CreateThumbnailPackagePath(string? thumbnailPath)
+    {
+        if (string.IsNullOrWhiteSpace(thumbnailPath) || !File.Exists(thumbnailPath))
+        {
+            return null;
+        }
+
+        var fileName = CreateSafeFileName(Path.GetFileName(thumbnailPath));
+        return $"thumbnails/{fileName}";
+    }
+
+    private static bool HasCurrentThumbnailPayload(CoffeeMovieSidecar existingSidecar, CoffeeMovieSidecar manifest)
+    {
+        if (string.IsNullOrWhiteSpace(manifest.Video.ThumbnailFileName))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(existingSidecar.Video.ThumbnailDataBase64)
+            && string.Equals(existingSidecar.Video.ThumbnailFileName, manifest.Video.ThumbnailFileName, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(existingSidecar.Video.ThumbnailContentType, manifest.Video.ThumbnailContentType, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ReportProgress(

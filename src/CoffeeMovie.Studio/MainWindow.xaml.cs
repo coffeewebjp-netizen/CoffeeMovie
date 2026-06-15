@@ -4,11 +4,14 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CoffeeMovie.Core.Models;
 using CoffeeMovie.Storage.Models;
@@ -28,7 +31,7 @@ public partial class MainWindow
     private const string DefaultUserNoteOverlayPosition = "above2";
     private const string DefaultLearningNotesAudienceLevel = "B1";
     private const string DefaultTranslationArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{inputDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, translate {input}, and write the Japanese SRT to {output}.\"";
-    private const string DefaultLearningNotesArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{inputDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, analyze {input}, and write learning notes JSON to {notesOutput}.\"";
+    private const string DefaultLearningNotesArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{inputDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, analyze {input}, and write sparse learning notes JSON to {notesOutput}. Do not generate the JSON with a PowerShell/Python classification script.\"";
     private const string DefaultTranslationPrompt = """
 あなたはアニメ英語字幕を日本語字幕へ翻訳する専門エージェントです。
 
@@ -72,10 +75,12 @@ public partial class MainWindow
 出力形式:
 - `{notesOutput}` には有効なUTF-8 JSONだけを書いてください。Markdown、説明、コードブロックは禁止です。
 - ルートは配列にしてください。
-- 入力SRTの各キューにつき1オブジェクトを出力してください。
+- 重要なキューだけを出力してください。コメント不要キューは配列に含めないでください。
+- 未出力のキューはアプリ側でコメント不要として扱い、既存AIメモを消します。
 - `index` はSRT番号と同じ整数にしてください。
 - `cefr` は `A1`, `A2`, `B1`, `B2`, `C1`, `C2` のいずれかにしてください。
-- `note` は必ず文字列で埋めてください。重要でないキューは `CEFR {level}: コメント不要（対象者レベル以下の通常表現）` のように短く書いてください。
+- `focus` は、そのキュー本文に実在する英単語または英語フレーズを完全一致で入れてください。
+- `note` は必ず文字列で埋めてください。
 - 重要なキューの `note` は日本語で100文字以内にしてください。
 
 JSONスキーマ:
@@ -83,30 +88,31 @@ JSONスキーマ:
   {
     "index": 1,
     "cefr": "B1",
+    "focus": "dissipate",
     "note": "CEFR B1: 語彙 'dissipate'=魔力が散る。魔法説明で再登場しやすい世界観語。"
-  },
-  {
-    "index": 2,
-    "cefr": "A1",
-    "note": "CEFR A1: コメント不要（対象者レベル以下の通常表現）"
   }
 ]
 
 分析方針:
-- 学習者の対象レベルは `{audienceLevel}` です。対象レベル未満の普通の挨拶、短い相づち、固有名詞だけの行はコメント不要マーカーにしてください。
+- 学習者の対象レベルは `{audienceLevel}` です。対象レベル未満の普通の挨拶、短い相づち、固有名詞だけの行は出力しないでください。
 - 対象レベル以上の語彙・構文・慣用句・口語、または対象レベル未満でも作品理解や今後の読解に効く特殊表現があるキューだけ実質的なnoteを書いてください。
 - 世界観ならではの語彙、魔法/戦闘/宗教/旅/師弟関係などのジャンル語、キャラクターの口調が出る言い回しを優先してください。
 - `Hello`, `Yes`, `Okay`, `No`, `Apple` のような基礎語や一語返答は、特殊なニュアンスがない限り解説しないでください。
 - noteの先頭に `CEFR {level}:` を含め、続けて `語彙:`, `構文:`, `慣用句:`, `口語:`, `世界観:` など要点が分かるラベルを入れてください。
 - 各noteは必ずそのキュー固有の内容にしてください。汎用テンプレートの反復は禁止です。
 - `$k`, `{word}`, `{level}`, `など抽象語`, `基本表現` のような未展開テンプレートや曖昧な定型句をnoteに書かないでください。
-- コメント不要ではないnoteには、そのキュー本文に実在する英単語または英語フレーズを1つ引用してください。別キューの語句を書かないでください。
+- コメント不要ではないnoteには、`focus` と同じ英単語または英語フレーズを必ず引用してください。別キューの語句を書かないでください。
+- `focus` は現在のキュー本文だけから選んでください。前後のキューは文脈理解に使ってもよいですが、前後のキューにしか存在しない語句・構文・慣用句を現在キューのnoteに書くことは禁止です。
+- noteを書いたあと、`focus` が現在キュー本文に完全一致で含まれるか自己確認してください。含まれない場合は、そのキューをコメント不要マーカーに戻してください。
+- `By this corrupt priest.` のような断片キューでは、前の文の受動態や構文を説明しないでください。断片自体に有用な語彙がなければコメント不要にしてください。
+- `Thank you very much`, `why do you like`, `Magic is amazing`, `isn't it?`, `I find that hard to believe` のような通常会話は、特殊なニュアンスや作品固有性がない限りコメント不要にしてください。
 - B1以上に上げている語彙、文脈、構文、慣用句がある場合は、該当する英単語や英語フレーズを必ず明記してください。
 - CEFRとは別に、よく使うスラング、口語表現、慣用句があれば `スラング:`、`口語:`、`慣用句:` のように示してください。
-- ローマ字歌詞、固有名詞だけ、英語学習対象外に近いキューは原則コメント不要マーカーにしてください。
-- 実質的なnoteは全体の15%-35%を目安にしてください。密度が高い場面でも半分以上のキューに実質noteを書かないでください。
+- 明らかに字幕認識ミスの疑いがある不自然な英語は、無理に通常解説せず `CEFR B1: ASR疑い: 'focus' は文脈上不自然。字幕修正候補として確認。` の形にしてください。
+- ローマ字歌詞、固有名詞だけ、英語学習対象外に近いキューは出力しないでください。
+- 実質的なnoteは全体の8%-25%を目安にしてください。どれだけ密度が高くても30%を超えないでください。
 - 同じnote文を大量に使い回さないでください。似たキューでも、該当語句と理由を変えてください。
-- 推測用のスクリプトや簡易分類で作らず、SRT本文を読んで各キューを個別に判断してください。
+- 全キュー分の雛形JSON、PowerShell/Python等の自動分類スクリプト、辞書上書き方式で作らないでください。SRT本文を読んで、重要なキュー番号だけを選んでください。
 - セリフ本文、番号、時刻は変更しないでください。字幕ファイルを書き換えないでください。
 - `{input}` と `{notesOutput}` が相対パスの場合は現在の作業フォルダ基準で扱い、絶対パスへ変換しないでください。
 """;
@@ -168,7 +174,9 @@ JSONスキーマ:
         _libraryStore = new MovieLibraryStore(_paths);
 
         InitializeComponent();
+        InstallTagSelectorButtons();
         MoviesListBox.ItemsSource = _movies;
+        ConfigureMovieShelfGrouping();
         _previewTimer.Tick += (_, _) =>
         {
             UpdatePreviewSeekFromPlayer();
@@ -209,6 +217,93 @@ JSONスキーマ:
         {
             ShowError("動画の取り込みに失敗しました", ex);
         }
+    }
+
+    private void ConfigureMovieShelfGrouping()
+    {
+        var view = CollectionViewSource.GetDefaultView(_movies);
+        view.GroupDescriptions.Clear();
+        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(MovieListItem.SeriesGroup)));
+        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(MovieListItem.SeasonGroup)));
+
+        MoviesListBox.GroupStyle.Clear();
+        MoviesListBox.GroupStyle.Add(CreateMovieGroupStyle(0));
+        MoviesListBox.GroupStyle.Add(CreateMovieGroupStyle(1));
+    }
+
+    private GroupStyle CreateMovieGroupStyle(int level)
+    {
+        var expanderFactory = new FrameworkElementFactory(typeof(Expander));
+        expanderFactory.SetValue(Expander.IsExpandedProperty, true);
+        expanderFactory.SetValue(Expander.ForegroundProperty, System.Windows.Media.Brushes.White);
+        expanderFactory.SetValue(Expander.MarginProperty, new Thickness(level == 0 ? 6 : 16, 6, 6, 2));
+        expanderFactory.SetBinding(HeaderedContentControl.HeaderProperty, new System.Windows.Data.Binding("Name"));
+
+        var itemsPresenterFactory = new FrameworkElementFactory(typeof(ItemsPresenter));
+        expanderFactory.AppendChild(itemsPresenterFactory);
+
+        return new GroupStyle
+        {
+            ContainerStyle = new Style(typeof(GroupItem))
+            {
+                Setters =
+                {
+                    new Setter(Control.TemplateProperty, new ControlTemplate(typeof(GroupItem))
+                    {
+                        VisualTree = expanderFactory
+                    })
+                }
+            }
+        };
+    }
+
+    private void InstallTagSelectorButtons()
+    {
+        MovieTagFilterTextBox.Margin = new Thickness(0, 0, 64, 6);
+        AddGridTagSelectorButton(MovieTagFilterTextBox, OnSelectMovieTagFilterClicked);
+
+        SubtitleTagFilterTextBox.Margin = new Thickness(0, 0, 64, 0);
+        AddGridTagSelectorButton(SubtitleTagFilterTextBox, OnSelectSubtitleTagFilterClicked);
+
+        MovieTagsTextBox.Margin = new Thickness(8, 4, 64, 0);
+        AddGridTagSelectorButton(MovieTagsTextBox, OnSelectMovieTagsClicked);
+
+        if (SceneTagFilterTextBox.Parent is Panel panel)
+        {
+            panel.Children.Add(CreateTagSelectorButton(OnSelectSceneTagFilterClicked, new Thickness(8, 0, 0, 0), "絞込"));
+            panel.Children.Add(CreateTagSelectorButton(OnSelectSelectedSceneTagsClicked, new Thickness(8, 0, 0, 0), "行タグ"));
+        }
+    }
+
+    private static void AddGridTagSelectorButton(System.Windows.Controls.TextBox target, RoutedEventHandler clickHandler)
+    {
+        if (target.Parent is not Grid grid)
+        {
+            return;
+        }
+
+        var button = CreateTagSelectorButton(clickHandler, new Thickness(0, target.Margin.Top, 0, target.Margin.Bottom));
+        button.HorizontalAlignment = HorizontalAlignment.Right;
+        button.VerticalAlignment = VerticalAlignment.Stretch;
+        Grid.SetRow(button, Grid.GetRow(target));
+        Grid.SetColumn(button, Grid.GetColumn(target));
+        grid.Children.Add(button);
+    }
+
+    private static Button CreateTagSelectorButton(RoutedEventHandler clickHandler, Thickness margin, string text = "選択")
+    {
+        var button = new Button
+        {
+            Content = text,
+            Width = 56,
+            MinWidth = 56,
+            Margin = margin,
+            Background = CreateBrush("#121A26"),
+            Foreground = System.Windows.Media.Brushes.White,
+            BorderBrush = CreateBrush("#27364A")
+        };
+        button.Click += clickHandler;
+        return button;
     }
 
     private async void OnImportSubtitleClicked(object sender, RoutedEventArgs e)
@@ -767,6 +862,63 @@ JSONスキーマ:
         SetStatus("タイトルを保存しました。");
     }
 
+    private async void OnMovieMetadataLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_selectedMovie is null || _isUpdatingSelection)
+        {
+            return;
+        }
+
+        if (!TryParseOptionalPositiveInt(SeasonNumberTextBox.Text, out var seasonNumber)
+            || !TryParseOptionalPositiveInt(EpisodeNumberTextBox.Text, out var episodeNumber))
+        {
+            SetStatus("Season / Episode は空欄または1以上の数値で入力してください。");
+            RenderMovieDetails(_selectedMovie);
+            return;
+        }
+
+        var seriesTitle = NormalizeOptionalText(SeriesTitleTextBox.Text);
+        var tags = ParseTags(MovieTagsTextBox.Text);
+        var isDirty = !string.Equals(_selectedMovie.SeriesTitle, seriesTitle, StringComparison.Ordinal)
+            || _selectedMovie.SeasonNumber != seasonNumber
+            || _selectedMovie.EpisodeNumber != episodeNumber
+            || !_selectedMovie.Tags.SequenceEqual(tags, StringComparer.OrdinalIgnoreCase);
+        if (!isDirty)
+        {
+            return;
+        }
+
+        _selectedMovie.SeriesTitle = seriesTitle;
+        _selectedMovie.SeasonNumber = seasonNumber;
+        _selectedMovie.EpisodeNumber = episodeNumber;
+        _selectedMovie.Tags = tags;
+        _selectedMovie.UpdatedAt = DateTimeOffset.UtcNow;
+
+        var library = await _libraryStore.LoadAsync();
+        var target = library.Movies.FirstOrDefault(movie => string.Equals(movie.Id, _selectedMovie.Id, StringComparison.Ordinal));
+        if (target is not null)
+        {
+            target.SeriesTitle = _selectedMovie.SeriesTitle;
+            target.SeasonNumber = _selectedMovie.SeasonNumber;
+            target.EpisodeNumber = _selectedMovie.EpisodeNumber;
+            target.Tags = _selectedMovie.Tags.ToList();
+            target.UpdatedAt = _selectedMovie.UpdatedAt;
+            foreach (var tag in target.Tags)
+            {
+                AddTagDefinition(library, TagScope.Movie, tag);
+            }
+
+            await _libraryStore.SaveAsync(library);
+        }
+        else
+        {
+            await _libraryStore.UpsertMovieAsync(_selectedMovie);
+        }
+
+        await RefreshMoviesAsync(_selectedMovie.Id);
+        SetStatus("動画の管理情報を保存しました。");
+    }
+
     private async void OnMovieSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (MoviesListBox.SelectedItem is not MovieListItem item)
@@ -952,6 +1104,16 @@ JSONスキーマ:
     }
 
     private void OnFlaggedOnlyChanged(object sender, RoutedEventArgs e)
+    {
+        if (_isUpdatingSelection)
+        {
+            return;
+        }
+
+        RenderSceneRows(_previewSubtitleTrack);
+    }
+
+    private void OnSceneFilterChanged(object sender, TextChangedEventArgs e)
     {
         if (_isUpdatingSelection)
         {
@@ -1246,10 +1408,14 @@ JSONスキーマ:
         }
 
         var fileInfo = new FileInfo(targetPath);
+        var metadata = InferMovieMetadataFromFileName(sourceFileName);
         var movie = new Movie
         {
             Id = movieId,
             Title = Path.GetFileNameWithoutExtension(sourceFileName),
+            SeriesTitle = metadata.SeriesTitle,
+            SeasonNumber = metadata.SeasonNumber,
+            EpisodeNumber = metadata.EpisodeNumber,
             Video = new VideoAsset
             {
                 SourceKind = VideoSourceKind.LocalFile,
@@ -1610,10 +1776,84 @@ JSONスキーマ:
             throw new InvalidOperationException("AIメモJSONに取り込めるメモが見つかりませんでした。");
         }
 
-        ValidateLearningNotesQuality(notes, targetTrack.Cues.Count);
+        ValidateLearningNotesQuality(notes, targetTrack.Cues);
 
         var importedCount = 0;
+        var cueByIndex = targetTrack.Cues
+            .GroupBy(cue => cue.Index)
+            .ToDictionary(group => group.Key, group => group.First());
+        var notesToImport = new List<LearningNoteImportRow>();
+        var relocatedFocusNotes = new List<string>();
+        var unresolvedFocusNotes = new List<string>();
         foreach (var note in notes)
+        {
+            if (note.Index <= 0 || !cueByIndex.TryGetValue(note.Index, out var cue))
+            {
+                continue;
+            }
+
+            if (NormalizeLearningNoteText(note) is null)
+            {
+                notesToImport.Add(note);
+                continue;
+            }
+
+            if (!HasValidLearningNoteFocus(note, cue.Text))
+            {
+                var focus = NormalizeOptionalText(note.Focus);
+                if (focus is not null
+                    && TryFindCueContainingFocus(targetTrack.Cues, note.Index, focus, out var retargetCue)
+                    && retargetCue is not null)
+                {
+                    notesToImport.Add(note with { Index = retargetCue.Index });
+                    relocatedFocusNotes.Add($"{note.Index}->{retargetCue.Index}: {focus}");
+                    continue;
+                }
+
+                unresolvedFocusNotes.Add($"{note.Index}: {focus ?? "(focusなし)"}");
+                continue;
+            }
+
+            notesToImport.Add(note);
+        }
+
+        if (relocatedFocusNotes.Count > 0)
+        {
+            AppendSubtitleGenerationLog(
+                "WARNING: relocated AI notes to the cue containing their focus: "
+                + FormatTextSample(relocatedFocusNotes));
+        }
+
+        if (unresolvedFocusNotes.Count > 0)
+        {
+            AppendSubtitleGenerationLog(
+                "WARNING: skipped AI notes whose focus was not found in any cue: "
+                + FormatTextSample(unresolvedFocusNotes));
+        }
+
+        notesToImport = MergeLearningNotesByIndex(notesToImport);
+
+        var noteIndexes = notesToImport
+            .Where(note => note.Index > 0)
+            .Select(note => note.Index)
+            .ToHashSet();
+        foreach (var cue in targetTrack.Cues)
+        {
+            if (noteIndexes.Contains(cue.Index))
+            {
+                continue;
+            }
+
+            var existingState = FindCueLearningState(targetTrack, cue.Id, cue.Index);
+            if (!string.IsNullOrWhiteSpace(existingState?.AiNote))
+            {
+                existingState.AiNote = null;
+                existingState.UpdatedAt = DateTimeOffset.UtcNow;
+                importedCount++;
+            }
+        }
+
+        foreach (var note in notesToImport)
         {
             if (note.Index <= 0)
             {
@@ -1649,6 +1889,30 @@ JSONスキーマ:
             state.AiNote = aiNote;
             state.UpdatedAt = DateTimeOffset.UtcNow;
             importedCount++;
+        }
+
+        foreach (var unresolved in unresolvedFocusNotes)
+        {
+            var separatorIndex = unresolved.IndexOf(':', StringComparison.Ordinal);
+            if (separatorIndex <= 0
+                || !int.TryParse(unresolved[..separatorIndex], NumberStyles.None, CultureInfo.InvariantCulture, out var unresolvedIndex))
+            {
+                continue;
+            }
+
+            var cue = targetTrack.Cues.FirstOrDefault(candidate => candidate.Index == unresolvedIndex);
+            if (cue is null)
+            {
+                continue;
+            }
+
+            var existingState = FindCueLearningState(targetTrack, cue.Id, cue.Index);
+            if (!string.IsNullOrWhiteSpace(existingState?.AiNote))
+            {
+                existingState.AiNote = null;
+                existingState.UpdatedAt = DateTimeOffset.UtcNow;
+                importedCount++;
+            }
         }
 
         if (importedCount > 0)
@@ -1723,6 +1987,9 @@ JSONスキーマ:
                     ?? 0,
                 TryGetString(item, "cefr")
                     ?? TryGetString(item, "level"),
+                TryGetString(item, "focus")
+                    ?? TryGetString(item, "phrase")
+                    ?? TryGetString(item, "word"),
                 TryGetString(item, "note")
                     ?? TryGetString(item, "memo")
                     ?? TryGetString(item, "comment")));
@@ -1767,15 +2034,95 @@ JSONスキーマ:
     private static bool IsLegacyLearningNotesPrompt(string prompt)
     {
         return !prompt.Contains("{audienceLevel}", StringComparison.OrdinalIgnoreCase)
-            || !prompt.Contains("コメント不要", StringComparison.Ordinal);
+            || !prompt.Contains("重要なキューだけ", StringComparison.Ordinal)
+            || !prompt.Contains("未出力のキュー", StringComparison.Ordinal);
     }
 
-    private static void ValidateLearningNotesQuality(IReadOnlyList<LearningNoteImportRow> notes, int expectedCueCount)
+    private static void ValidateLearningNotesQuality(IReadOnlyList<LearningNoteImportRow> notes, IReadOnlyList<SubtitleCue> expectedCues)
     {
-        if (expectedCueCount > 0 && notes.Count != expectedCueCount)
+        var expectedCueCount = expectedCues.Count;
+        if (expectedCueCount > 0 && notes.Count > expectedCueCount)
         {
             throw new InvalidOperationException(
-                $"AIメモJSONの件数が字幕数と一致しません: notes={notes.Count}, cues={expectedCueCount}");
+                $"AIメモJSONの件数が字幕数より多すぎます: notes={notes.Count}, cues={expectedCueCount}");
+        }
+
+        var expectedIndexes = expectedCues
+            .Select(cue => cue.Index)
+            .Where(index => index > 0)
+            .Distinct()
+            .Order()
+            .ToList();
+        if (expectedIndexes.Count == expectedCueCount)
+        {
+            var noteIndexes = notes.Select(note => note.Index).ToList();
+            var invalidIndexes = noteIndexes
+                .Where(index => index <= 0)
+                .Distinct()
+                .Order()
+                .ToList();
+            if (invalidIndexes.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "AIメモJSONに無効な字幕番号があります: "
+                    + FormatIndexSample(invalidIndexes));
+            }
+
+            var duplicatedIndexes = noteIndexes
+                .GroupBy(index => index)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .Order()
+                .ToList();
+            if (duplicatedIndexes.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "AIメモJSONに重複した字幕番号があります: "
+                    + FormatIndexSample(duplicatedIndexes));
+            }
+
+            var noteIndexSet = noteIndexes.Distinct().Order().ToList();
+            var unexpectedIndexes = noteIndexSet.Except(expectedIndexes).ToList();
+            if (unexpectedIndexes.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "AIメモJSONに対象字幕に存在しない番号があります: "
+                    + FormatIndexSample(unexpectedIndexes));
+            }
+        }
+
+        var cueTextByIndex = expectedCues
+            .GroupBy(cue => cue.Index)
+            .ToDictionary(group => group.Key, group => group.First().Text);
+        var missingFocusNotes = new List<int>();
+        var mismatchedFocusNotes = new List<string>();
+        foreach (var note in notes)
+        {
+            var normalizedNote = NormalizeLearningNoteText(note);
+            if (normalizedNote is null)
+            {
+                continue;
+            }
+
+            var focus = NormalizeOptionalText(note.Focus);
+            if (focus is null)
+            {
+                missingFocusNotes.Add(note.Index);
+                continue;
+            }
+
+            if (cueTextByIndex.TryGetValue(note.Index, out var cueText)
+                && !ContainsNormalizedFocus(cueText, focus))
+            {
+                mismatchedFocusNotes.Add($"{note.Index}: {focus}");
+            }
+        }
+
+        if (missingFocusNotes.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "AIメモJSONの実メモにfocusがありません: "
+                + FormatIndexSample(missingFocusNotes));
         }
 
         var normalizedNotes = notes
@@ -1783,6 +2130,18 @@ JSONスキーマ:
             .Where(note => !string.IsNullOrWhiteSpace(note))
             .Cast<string>()
             .ToList();
+
+        if (mismatchedFocusNotes.Count > 0)
+        {
+            var maxAllowedMismatches = Math.Max(10, (int)Math.Ceiling(normalizedNotes.Count * 0.25));
+            if (mismatchedFocusNotes.Count > maxAllowedMismatches)
+            {
+                throw new InvalidOperationException(
+                    "AIメモJSONのfocusが対象字幕本文に存在しないnoteが多すぎます: "
+                    + FormatTextSample(mismatchedFocusNotes)
+                    + "。前後の字幕ではなく、同じ番号の字幕本文にある語句だけを使ってください。");
+            }
+        }
         if (normalizedNotes.Count == 0)
         {
             throw new InvalidOperationException("AIメモJSONに取り込めるnoteがありません。重要な語彙・構文・世界観語だけをnoteにしてください。");
@@ -1811,7 +2170,7 @@ JSONスキーマ:
                 + string.Join(" / ", placeholderNotes));
         }
 
-        if (expectedCueCount >= 40 && normalizedNotes.Count > (int)Math.Ceiling(expectedCueCount * 0.55))
+        if (expectedCueCount >= 40 && normalizedNotes.Count > (int)Math.Ceiling(expectedCueCount * 0.35))
         {
             throw new InvalidOperationException(
                 $"生成されたAIメモの品質が低いため取り込みませんでした。noteが多すぎます: notes={normalizedNotes.Count}, cues={expectedCueCount}。"
@@ -1845,6 +2204,113 @@ JSONスキーマ:
                 $"生成されたAIメモの品質が低いため取り込みませんでした。内容が単調すぎます: unique={uniqueCount}, notes={normalizedNotes.Count}。"
                 + " 各字幕固有の語句と理由を含めて再生成してください。");
         }
+    }
+
+    private static bool ContainsNormalizedFocus(string cueText, string focus)
+    {
+        var normalizedCue = NormalizeWhitespace(cueText);
+        var normalizedFocus = NormalizeWhitespace(focus);
+        return normalizedFocus.Length > 0
+            && normalizedCue.IndexOf(normalizedFocus, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool HasValidLearningNoteFocus(LearningNoteImportRow note, string cueText)
+    {
+        var focus = NormalizeOptionalText(note.Focus);
+        return focus is not null && ContainsNormalizedFocus(cueText, focus);
+    }
+
+    private static bool TryFindCueContainingFocus(
+        IReadOnlyList<SubtitleCue> cues,
+        int sourceIndex,
+        string focus,
+        out SubtitleCue? matchedCue)
+    {
+        const int nearbyCueWindow = 8;
+        matchedCue = cues
+            .Where(cue => Math.Abs(cue.Index - sourceIndex) <= nearbyCueWindow)
+            .Where(cue => ContainsNormalizedFocus(cue.Text, focus))
+            .OrderBy(cue => Math.Abs(cue.Index - sourceIndex))
+            .ThenBy(cue => cue.Index)
+            .FirstOrDefault();
+        if (matchedCue is not null)
+        {
+            return true;
+        }
+
+        matchedCue = cues
+            .Where(cue => ContainsNormalizedFocus(cue.Text, focus))
+            .OrderBy(cue => Math.Abs(cue.Index - sourceIndex))
+            .ThenBy(cue => cue.Index)
+            .FirstOrDefault();
+        return matchedCue is not null;
+    }
+
+    private static List<LearningNoteImportRow> MergeLearningNotesByIndex(IReadOnlyList<LearningNoteImportRow> notes)
+    {
+        return notes
+            .GroupBy(note => note.Index)
+            .OrderBy(group => group.Key)
+            .Select(MergeLearningNoteGroup)
+            .ToList();
+    }
+
+    private static LearningNoteImportRow MergeLearningNoteGroup(IGrouping<int, LearningNoteImportRow> group)
+    {
+        var rows = group.ToList();
+        if (rows.Count == 1)
+        {
+            return rows[0];
+        }
+
+        var first = rows[0];
+        var mergedNotes = rows
+            .Select(NormalizeLearningNoteText)
+            .Where(note => !string.IsNullOrWhiteSpace(note))
+            .Cast<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (mergedNotes.Count == 0)
+        {
+            return first;
+        }
+
+        var mergedFocus = string.Join(
+            " / ",
+            rows
+                .Select(row => NormalizeOptionalText(row.Focus))
+                .Where(focus => !string.IsNullOrWhiteSpace(focus))
+                .Cast<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase));
+
+        return first with
+        {
+            Focus = string.IsNullOrWhiteSpace(mergedFocus) ? first.Focus : mergedFocus,
+            Note = string.Join(" / ", mergedNotes)
+        };
+    }
+
+    private static string NormalizeWhitespace(string text)
+    {
+        return string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    private static string FormatIndexSample(IReadOnlyList<int> indexes)
+    {
+        const int maxShown = 12;
+        var sample = string.Join(", ", indexes.Take(maxShown));
+        return indexes.Count > maxShown
+            ? $"{sample}, ... ({indexes.Count}件)"
+            : sample;
+    }
+
+    private static string FormatTextSample(IReadOnlyList<string> values)
+    {
+        const int maxShown = 8;
+        var sample = string.Join(" / ", values.Take(maxShown));
+        return values.Count > maxShown
+            ? $"{sample} / ... ({values.Count}件)"
+            : sample;
     }
 
     private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement value)
@@ -2006,7 +2472,11 @@ JSONスキーマ:
         var library = await _libraryStore.LoadAsync();
         ApplyStudioPreferences(library);
         var movies = library.Movies
-            .OrderByDescending(movie => movie.UpdatedAt)
+            .Where(MatchesMovieFilters)
+            .OrderBy(movie => string.IsNullOrWhiteSpace(movie.SeriesTitle) ? movie.Title : movie.SeriesTitle, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(movie => movie.SeasonNumber ?? int.MaxValue)
+            .ThenBy(movie => movie.EpisodeNumber ?? int.MaxValue)
+            .ThenByDescending(movie => movie.UpdatedAt)
             .ToList();
 
         _movies.Clear();
@@ -2015,7 +2485,7 @@ JSONスキーマ:
             _movies.Add(new MovieListItem(movie));
         }
 
-        SummaryTextBlock.Text = $"{_movies.Count} movies";
+        SummaryTextBlock.Text = $"{_movies.Count} / {library.Movies.Count} movies";
 
         var selectedItem = !string.IsNullOrWhiteSpace(selectedMovieId)
             ? _movies.FirstOrDefault(item => string.Equals(item.MovieId, selectedMovieId, StringComparison.Ordinal))
@@ -2029,6 +2499,227 @@ JSONスキーマ:
         }
     }
 
+    private async void OnMovieFilterChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_isUpdatingSelection)
+        {
+            return;
+        }
+
+        await RefreshMoviesAsync(_selectedMovie?.Id);
+    }
+
+    private async void OnSelectMovieTagFilterClicked(object sender, RoutedEventArgs e)
+    {
+        if (await SelectTagsIntoTextBoxAsync(MovieTagFilterTextBox, TagScope.Movie, "動画タグで絞り込み"))
+        {
+            await RefreshMoviesAsync(_selectedMovie?.Id);
+        }
+    }
+
+    private async void OnSelectSubtitleTagFilterClicked(object sender, RoutedEventArgs e)
+    {
+        if (await SelectTagsIntoTextBoxAsync(SubtitleTagFilterTextBox, TagScope.Subtitle, "字幕タグで動画を絞り込み"))
+        {
+            await RefreshMoviesAsync(_selectedMovie?.Id);
+        }
+    }
+
+    private async void OnSelectMovieTagsClicked(object sender, RoutedEventArgs e)
+    {
+        if (await SelectTagsIntoTextBoxAsync(MovieTagsTextBox, TagScope.Movie, "動画タグを選択"))
+        {
+            OnMovieMetadataLostFocus(sender, e);
+        }
+    }
+
+    private async void OnSelectSceneTagFilterClicked(object sender, RoutedEventArgs e)
+    {
+        if (await SelectTagsIntoTextBoxAsync(SceneTagFilterTextBox, TagScope.Subtitle, "字幕タグで行を絞り込み"))
+        {
+            RenderSceneRows(_previewSubtitleTrack);
+        }
+    }
+
+    private async void OnSelectSelectedSceneTagsClicked(object sender, RoutedEventArgs e)
+    {
+        if (ScenesDataGrid.SelectedItem is not SceneRow row)
+        {
+            SetStatus("タグを付け替える字幕行を選択してください。");
+            return;
+        }
+
+        var temp = new System.Windows.Controls.TextBox { Text = row.Tags };
+        if (!await SelectTagsIntoTextBoxAsync(temp, TagScope.Subtitle, "選択中の字幕タグを付け替え"))
+        {
+            return;
+        }
+
+        row.Tags = temp.Text;
+        row.IsFlagged = ParseTags(row.Tags).Any(IsFlagTag);
+        await SaveSceneRowLearningStateAsync(row);
+        RenderSceneRows(_previewSubtitleTrack);
+    }
+
+    private async Task<bool> SelectTagsIntoTextBoxAsync(
+        System.Windows.Controls.TextBox target,
+        TagScope scope,
+        string title)
+    {
+        var library = await _libraryStore.LoadAsync();
+        MergeTagDefinitionsFromLibrary(library);
+        var currentTags = ParseTags(target.Text);
+        var availableTags = library.TagDefinitions
+            .Where(tag => tag.Scope == scope)
+            .OrderBy(tag => tag.SortOrder)
+            .Select(tag => tag.Name)
+            .Concat(currentTags)
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (availableTags.Count == 0)
+        {
+            MessageBox.Show(this, "登録済みタグがありません。先にタグ管理またはタグ入力でタグを作成してください。", title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return false;
+        }
+
+        var selectedKeys = currentTags.Select(NormalizedTagKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var checkBoxes = availableTags
+            .Select(tag => new CheckBox
+            {
+                Content = tag,
+                IsChecked = selectedKeys.Contains(NormalizedTagKey(tag)),
+                Foreground = System.Windows.Media.Brushes.White,
+                Margin = new Thickness(0, 0, 0, 8)
+            })
+            .ToList();
+
+        var listPanel = new StackPanel();
+        foreach (var checkBox in checkBoxes)
+        {
+            listPanel.Children.Add(checkBox);
+        }
+
+        var scrollViewer = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = listPanel
+        };
+
+        var window = new Window
+        {
+            Title = title,
+            Owner = this,
+            Width = 360,
+            Height = Math.Min(520, Math.Max(300, SystemParameters.WorkArea.Height - 120)),
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = FindResource("PanelBrush") as System.Windows.Media.Brush,
+            Foreground = System.Windows.Media.Brushes.White
+        };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        var clearButton = new Button
+        {
+            Content = "クリア",
+            MinWidth = 72,
+            Background = System.Windows.Media.Brushes.Transparent,
+            Foreground = System.Windows.Media.Brushes.White,
+            BorderBrush = CreateBrush("#27364A")
+        };
+        clearButton.Click += (_, _) =>
+        {
+            foreach (var checkBox in checkBoxes)
+            {
+                checkBox.IsChecked = false;
+            }
+        };
+        var okButton = new Button { Content = "OK", MinWidth = 72 };
+        okButton.Click += (_, _) => window.DialogResult = true;
+        var cancelButton = new Button
+        {
+            Content = "キャンセル",
+            MinWidth = 86,
+            Background = System.Windows.Media.Brushes.Transparent,
+            Foreground = System.Windows.Media.Brushes.White,
+            BorderBrush = CreateBrush("#27364A")
+        };
+        cancelButton.Click += (_, _) => window.DialogResult = false;
+        buttons.Children.Add(clearButton);
+        buttons.Children.Add(okButton);
+        buttons.Children.Add(cancelButton);
+
+        var content = new Grid
+        {
+            Margin = new Thickness(16),
+            RowDefinitions =
+            {
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                new RowDefinition { Height = GridLength.Auto }
+            }
+        };
+        content.Children.Add(scrollViewer);
+        Grid.SetRow(buttons, 1);
+        content.Children.Add(buttons);
+        window.Content = content;
+
+        if (window.ShowDialog() != true)
+        {
+            return false;
+        }
+
+        target.Text = string.Join(", ", checkBoxes
+            .Where(checkBox => checkBox.IsChecked == true)
+            .Select(checkBox => checkBox.Content?.ToString())
+            .Where(tag => !string.IsNullOrWhiteSpace(tag)));
+        return true;
+    }
+
+    private bool MatchesMovieFilters(Movie movie)
+    {
+        var search = NormalizeOptionalText(MovieSearchTextBox.Text);
+        if (!string.IsNullOrWhiteSpace(search)
+            && !ContainsText(movie.Title, search)
+            && !ContainsText(movie.SeriesTitle, search)
+            && !ContainsText(FormatSeasonEpisode(movie), search))
+        {
+            return false;
+        }
+
+        var movieTagFilters = ParseTags(MovieTagFilterTextBox.Text);
+        if (movieTagFilters.Count > 0
+            && !movieTagFilters.All(filter => movie.Tags.Any(tag => ContainsText(tag, filter))))
+        {
+            return false;
+        }
+
+        var subtitleTagFilters = ParseTags(SubtitleTagFilterTextBox.Text);
+        if (subtitleTagFilters.Count > 0
+            && !MovieHasSubtitleTags(movie, subtitleTagFilters))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool MovieHasSubtitleTags(Movie movie, IReadOnlyCollection<string> filters)
+    {
+        return movie.SubtitleTracks
+            .SelectMany(track => track.CueLearningStates)
+            .Any(state =>
+            {
+                var tags = state.IsFlagged
+                    ? state.Tags.Concat([FlagTagName])
+                    : state.Tags;
+                return filters.All(filter => tags.Any(tag => ContainsText(tag, filter)));
+            });
+    }
+
     private void RenderMovieDetails(Movie? movie)
     {
         _isUpdatingSelection = true;
@@ -2040,6 +2731,10 @@ JSONスキーマ:
             if (movie is null)
             {
                 TitleTextBox.Text = string.Empty;
+                SeriesTitleTextBox.Text = string.Empty;
+                SeasonNumberTextBox.Text = string.Empty;
+                EpisodeNumberTextBox.Text = string.Empty;
+                MovieTagsTextBox.Text = string.Empty;
                 FileNameTextBlock.Text = "動画を追加してください";
                 CachePathTextBlock.Text = string.Empty;
                 SizeTextBlock.Text = string.Empty;
@@ -2053,6 +2748,10 @@ JSONスキーマ:
             }
 
             TitleTextBox.Text = movie.Title;
+            SeriesTitleTextBox.Text = movie.SeriesTitle ?? string.Empty;
+            SeasonNumberTextBox.Text = movie.SeasonNumber?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+            EpisodeNumberTextBox.Text = movie.EpisodeNumber?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+            MovieTagsTextBox.Text = string.Join(", ", movie.Tags);
             FileNameTextBlock.Text = movie.Video.FileName;
             CachePathTextBlock.Text = movie.Video.CachePath ?? movie.Video.SourceUri;
             SizeTextBlock.Text = $"{FormatBytes(movie.Video.SizeBytes)} / {movie.SubtitleTracks.Count} subtitle / {movie.SceneMarkers.Count} scene";
@@ -2077,6 +2776,10 @@ JSONスキーマ:
     private void SetDetailsEnabled(bool enabled)
     {
         TitleTextBox.IsEnabled = enabled;
+        SeriesTitleTextBox.IsEnabled = enabled;
+        SeasonNumberTextBox.IsEnabled = enabled;
+        EpisodeNumberTextBox.IsEnabled = enabled;
+        MovieTagsTextBox.IsEnabled = enabled;
         AddSubtitleButton.IsEnabled = enabled;
         RemoveSubtitleButton.IsEnabled = enabled && SubtitlesDataGrid.SelectedItem is not null;
         WriteSidecarButton.IsEnabled = enabled;
@@ -2368,6 +3071,23 @@ JSONスキーマ:
         if (FlaggedOnlyCheckBox.IsChecked == true)
         {
             rows = rows.Where(row => row.IsFlagged).ToList();
+        }
+
+        var tagFilters = ParseTags(SceneTagFilterTextBox.Text);
+        if (tagFilters.Count > 0)
+        {
+            rows = rows
+                .Where(row =>
+                {
+                    var tags = ParseTags(row.Tags);
+                    if (row.IsFlagged)
+                    {
+                        AddTag(tags, FlagTagName);
+                    }
+
+                    return tagFilters.All(filter => tags.Any(tag => ContainsText(tag, filter)));
+                })
+                .ToList();
         }
 
         ScenesDataGrid.ItemsSource = rows;
@@ -3537,6 +4257,74 @@ JSONスキーマ:
         return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
 
+    private static bool TryParseOptionalPositiveInt(string? text, out int? value)
+    {
+        value = null;
+        var normalized = NormalizeOptionalText(text);
+        if (normalized is null)
+        {
+            return true;
+        }
+
+        if (!int.TryParse(normalized, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            || parsed < 1)
+        {
+            return false;
+        }
+
+        value = parsed;
+        return true;
+    }
+
+    private static bool ContainsText(string? value, string search)
+    {
+        return value?.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static string FormatSeasonEpisode(Movie movie)
+    {
+        var season = movie.SeasonNumber is null ? string.Empty : $"S{movie.SeasonNumber.Value:00}";
+        var episode = movie.EpisodeNumber is null ? string.Empty : $"E{movie.EpisodeNumber.Value:00}";
+        return string.Join(' ', new[] { season, episode }.Where(part => part.Length > 0));
+    }
+
+    private static InferredMovieMetadata InferMovieMetadataFromFileName(string fileName)
+    {
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        var seasonEpisodeMatch = Regex.Match(name, @"\bS(?<season>\d{1,2})\s*E(?<episode>\d{1,3})\b", RegexOptions.IgnoreCase);
+        if (seasonEpisodeMatch.Success)
+        {
+            return new InferredMovieMetadata(
+                CleanSeriesTitle(name[..seasonEpisodeMatch.Index]),
+                ParsePositiveInt(seasonEpisodeMatch.Groups["season"].Value),
+                ParsePositiveInt(seasonEpisodeMatch.Groups["episode"].Value));
+        }
+
+        var episodeMatch = Regex.Match(name, @"\bE(?<episode>\d{1,3})\b", RegexOptions.IgnoreCase);
+        if (episodeMatch.Success)
+        {
+            return new InferredMovieMetadata(
+                CleanSeriesTitle(name[..episodeMatch.Index]),
+                null,
+                ParsePositiveInt(episodeMatch.Groups["episode"].Value));
+        }
+
+        return new InferredMovieMetadata(null, null, null);
+    }
+
+    private static string? CleanSeriesTitle(string value)
+    {
+        var cleaned = Regex.Replace(value, @"[-_・\s]+$", string.Empty).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? null : cleaned;
+    }
+
+    private static int? ParsePositiveInt(string value)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0
+            ? parsed
+            : null;
+    }
+
     private string ResolveGenerationVideoPath(Movie movie)
     {
         if (!string.IsNullOrWhiteSpace(movie.Video.SourceUri)
@@ -4592,22 +5380,59 @@ JSONスキーマ:
         {
             MovieId = movie.Id;
             Title = movie.Title;
-            Detail = $"{movie.SubtitleTracks.Count} subtitle / {movie.SceneMarkers.Count} scene";
+            SeriesGroup = string.IsNullOrWhiteSpace(movie.SeriesTitle) ? "未分類" : movie.SeriesTitle;
+            SeasonGroup = movie.SeasonNumber is null ? "Season 未設定" : $"Season {movie.SeasonNumber.Value}";
+            var series = string.IsNullOrWhiteSpace(movie.SeriesTitle) ? string.Empty : movie.SeriesTitle;
+            var episode = FormatSeasonEpisode(movie);
+            Detail = string.Join(" / ", new[]
+                {
+                    string.Join(' ', new[] { series, episode }.Where(part => !string.IsNullOrWhiteSpace(part))),
+                    $"{movie.SubtitleTracks.Count} subtitle",
+                    $"{movie.SceneMarkers.Count} scene",
+                    movie.Tags.Count == 0 ? string.Empty : string.Join(", ", movie.Tags)
+                }
+                .Where(part => !string.IsNullOrWhiteSpace(part)));
             CacheState = movie.Video.HasLocalCache ? "cached" : "not cached";
-            ThumbnailPath = !string.IsNullOrWhiteSpace(movie.Video.ThumbnailPath) && File.Exists(movie.Video.ThumbnailPath)
-                ? movie.Video.ThumbnailPath
-                : null;
+            ThumbnailPath = LoadThumbnailSource(movie.Video.ThumbnailPath);
         }
 
         public string MovieId { get; }
 
         public string Title { get; }
 
+        public string SeriesGroup { get; }
+
+        public string SeasonGroup { get; }
+
         public string Detail { get; }
 
         public string CacheState { get; }
 
-        public string? ThumbnailPath { get; }
+        public ImageSource? ThumbnailPath { get; }
+
+        private static ImageSource? LoadThumbnailSource(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return null;
+            }
+
+            try
+            {
+                using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.StreamSource = stream;
+                image.EndInit();
+                image.Freeze();
+                return image;
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 
     private sealed class SubtitleRow
@@ -4671,7 +5496,9 @@ JSONスキーマ:
         };
     }
 
-    private sealed record LearningNoteImportRow(int Index, string? Cefr, string? Note);
+    private sealed record LearningNoteImportRow(int Index, string? Cefr, string? Focus, string? Note);
+
+    private sealed record InferredMovieMetadata(string? SeriesTitle, int? SeasonNumber, int? EpisodeNumber);
 
     private sealed class TagDefinitionRow
     {

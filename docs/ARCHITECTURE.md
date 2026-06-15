@@ -117,4 +117,10 @@ This keeps the library portable while still allowing each workstation to point S
 
 Studio can capture a thumbnail from the current preview position. The current implementation shells out to `ffmpeg`, saves a JPEG under `thumbnail-cache`, stores the path and timestamp on `VideoAsset`, and shows the image in the Studio movie shelf. Studio can replay the saved thumbnail timestamp for five seconds to verify the chosen scene.
 
-The sidecar currently exports the thumbnail file name and timestamp. Android Reader preserves the timestamp metadata, but thumbnail image display in Reader is still a later step.
+Studio embeds the thumbnail in both the `.coffeemovie` package and the lightweight `.coffeemovie.json` sidecar when a thumbnail exists. Android Reader writes the sidecar thumbnail to its app-local thumbnail cache during Drive sync, so the movie shelf can show cover images before the large video package is downloaded.
+
+Reader also reuses the same thumbnail on the player surface while the WebView and video are loading. The overlay is hidden as soon as the embedded player reports playback.
+
+## Series Metadata Flow
+
+`Movie` stores optional `seriesTitle`, `seasonNumber`, and `episodeNumber` fields. Studio lets the user edit these fields directly and writes them into the package sidecar. Reader imports the same fields and renders the shelf as a collapsible series -> season -> episode tree.

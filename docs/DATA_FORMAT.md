@@ -160,10 +160,10 @@ Studio infers `.en.srt` as `LearningTarget`, `.ja.srt` / `.jp.srt` / `.jpn.srt` 
 
 Studio exports Drive-ready reader packages as a pair:
 
-- `.coffeemovie`: ZIP package with `manifest.json`, the video file, and subtitle files.
+- `.coffeemovie`: ZIP package with `manifest.json`, the video file, subtitle files, and the optional thumbnail image.
 - `.coffeemovie.json`: small sidecar used by Reader for sync checks and shelf shells before downloading the video package.
 
-Both manifest and sidecar use schema version 1. The sidecar includes subtitle cues and learning states, so tags, AI notes, user notes, and shadowing OK/NG counts can travel with a video.
+Both manifest and sidecar use schema version 1. The sidecar includes subtitle cues, learning states, and a small Base64 thumbnail payload when available, so tags, AI notes, user notes, shadowing OK/NG counts, and shelf thumbnails can travel with a video.
 
 ```json
 {
@@ -177,6 +177,9 @@ Both manifest and sidecar use schema version 1. The sidecar includes subtitle cu
   "movie": {
     "id": "movie-abc123",
     "title": "Sample",
+    "seriesTitle": "Frieren: Beyond Journey's End",
+    "seasonNumber": 1,
+    "episodeNumber": 2,
     "durationSeconds": 3600,
     "tags": ["anime", "shadowing"],
     "createdAt": "2026-06-14T00:00:00Z",
@@ -188,6 +191,9 @@ Both manifest and sidecar use schema version 1. The sidecar includes subtitle cu
     "sizeBytes": 123456,
     "modifiedAt": "2026-06-07T12:00:00Z",
     "thumbnailFileName": "movie-abc123.jpg",
+    "thumbnailPackagePath": "thumbnails/movie-abc123.jpg",
+    "thumbnailContentType": "image/jpeg",
+    "thumbnailDataBase64": "...",
     "thumbnailTimestampSeconds": 123.45
   },
   "subtitles": [
@@ -229,15 +235,15 @@ Both manifest and sidecar use schema version 1. The sidecar includes subtitle cu
 }
 ```
 
-The `.coffeemovie` manifest has `packageType: "reader"` and the same metadata, plus package-relative paths for the embedded files. Video bytes are stored without recompression. Subtitle text files are compressed normally because they are small.
+The `.coffeemovie` manifest has `packageType: "reader"` and the same metadata, plus package-relative paths for the embedded files. Video bytes are stored without recompression. Subtitle text files and thumbnail images are compressed normally because they are small.
 
-`contentFingerprint` is the primary sync-difference signal. It includes movie identity, title, description, video identity fields, thumbnail timestamp, movie tags, subtitle track metadata, cue timing/text, cue tags, user notes, AI notes, and listening/shadowing metrics. File size and Drive modified time are used for download progress, resume validation, and cache integrity checks, not as the primary semantic-difference signal.
+`contentFingerprint` is the primary sync-difference signal. It includes movie identity, title, series title, season number, episode number, description, video identity fields, thumbnail timestamp, thumbnail image hash when present, movie tags, subtitle track metadata, cue timing/text, cue tags, user notes, AI notes, and listening/shadowing metrics. File size and Drive modified time are used for download progress, resume validation, and cache integrity checks, not as the primary semantic-difference signal.
 
 Studio export behavior:
 
 1. Compute the new `contentFingerprint`.
 2. Read the existing sidecar from the configured Drive sync folder when it exists.
-3. If the existing sidecar fingerprint matches and the package exists, skip writing both files.
+3. If the existing sidecar fingerprint, thumbnail payload, and package file match, skip writing both files.
 4. If the fingerprint differs, write a new package and sidecar and update `exportedAt`.
 
 Reader sync behavior:

@@ -16,7 +16,7 @@ public sealed class MovieShelfPage : ContentPage
     private readonly CollectionView _moviesView = new()
     {
         SelectionMode = SelectionMode.Single,
-        ItemSizingStrategy = ItemSizingStrategy.MeasureFirstItem
+        ItemSizingStrategy = ItemSizingStrategy.MeasureAllItems
     };
     private readonly Label _summaryLabel = new()
     {
@@ -33,6 +33,8 @@ public sealed class MovieShelfPage : ContentPage
     private readonly Button _importButton = CreateHeaderButton("動画");
     private readonly Button _driveSettingsButton = CreateHeaderButton("Drive設定");
     private readonly Button _syncButton = CreateHeaderButton("同期");
+    private readonly HashSet<string> _collapsedSeries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _collapsedSeasons = new(StringComparer.OrdinalIgnoreCase);
     private bool _isSyncing;
     private bool _isOpeningMovie;
 
@@ -54,7 +56,12 @@ public sealed class MovieShelfPage : ContentPage
         _driveSettingsButton.Clicked += async (_, _) => await ConfigureGoogleDriveAsync();
         _syncButton.Clicked += async (_, _) => await SyncGoogleDriveAsync();
 
-        _moviesView.ItemTemplate = new DataTemplate(CreateMovieCard);
+        _moviesView.ItemTemplate = new ShelfRowTemplateSelector
+        {
+            SeriesTemplate = new DataTemplate(CreateSeriesHeaderRow),
+            SeasonTemplate = new DataTemplate(CreateSeasonHeaderRow),
+            MovieTemplate = new DataTemplate(CreateMovieCard)
+        };
         _moviesView.SelectionChanged += OnMovieSelected;
 
         var actionGrid = new Grid
@@ -142,7 +149,7 @@ public sealed class MovieShelfPage : ContentPage
         var movies = await _libraryService.LoadMoviesAsync();
         var items = movies.Select(CreateMovieListItem).ToList();
 
-        _moviesView.ItemsSource = items;
+        _moviesView.ItemsSource = BuildShelfRows(items);
         _emptyLabel.IsVisible = items.Count == 0;
         if (!_isSyncing)
         {
@@ -183,6 +190,7 @@ public sealed class MovieShelfPage : ContentPage
     {
         if (e.CurrentSelection.FirstOrDefault() is not MovieListItem item)
         {
+            _moviesView.SelectedItem = null;
             return;
         }
 
@@ -506,6 +514,142 @@ public sealed class MovieShelfPage : ContentPage
         });
     }
 
+    private IReadOnlyList<object> BuildShelfRows(IReadOnlyList<MovieListItem> items)
+    {
+        var rows = new List<object>();
+        foreach (var seriesGroup in items.GroupBy(item => item.SeriesKey))
+        {
+            var seriesItems = seriesGroup.ToList();
+            var seriesTitle = seriesItems[0].SeriesTitle;
+            var seriesExpanded = !_collapsedSeries.Contains(seriesGroup.Key);
+            rows.Add(new ShelfHeaderRow(
+                Key: seriesGroup.Key,
+                ParentKey: null,
+                Title: seriesTitle,
+                Detail: $"{seriesItems.Count} episode",
+                Level: 0,
+                IsExpanded: seriesExpanded));
+            if (!seriesExpanded)
+            {
+                continue;
+            }
+
+            foreach (var seasonGroup in seriesItems.GroupBy(item => item.SeasonKey))
+            {
+                var seasonItems = seasonGroup.ToList();
+                var seasonKey = $"{seriesGroup.Key}|{seasonGroup.Key}";
+                var seasonExpanded = !_collapsedSeasons.Contains(seasonKey);
+                rows.Add(new ShelfHeaderRow(
+                    Key: seasonKey,
+                    ParentKey: seriesGroup.Key,
+                    Title: seasonItems[0].SeasonTitle,
+                    Detail: $"{seasonItems.Count} episode",
+                    Level: 1,
+                    IsExpanded: seasonExpanded));
+                if (seasonExpanded)
+                {
+                    rows.AddRange(seasonItems);
+                }
+            }
+        }
+
+        return rows;
+    }
+
+    private View CreateSeriesHeaderRow()
+    {
+        return CreateShelfHeaderRow(Color.FromArgb("#F6D365"), new Thickness(18, 10, 18, 4));
+    }
+
+    private View CreateSeasonHeaderRow()
+    {
+        return CreateShelfHeaderRow(Color.FromArgb("#5DE0D0"), new Thickness(34, 6, 18, 4));
+    }
+
+    private View CreateShelfHeaderRow(Color accentColor, Thickness margin)
+    {
+        var marker = new Label
+        {
+            TextColor = accentColor,
+            FontSize = 18,
+            FontAttributes = FontAttributes.Bold,
+            VerticalTextAlignment = TextAlignment.Center,
+            WidthRequest = 24
+        };
+        marker.SetBinding(Label.TextProperty, nameof(ShelfHeaderRow.Marker));
+
+        var title = new Label
+        {
+            TextColor = Colors.White,
+            FontAttributes = FontAttributes.Bold,
+            FontSize = 15,
+            LineBreakMode = LineBreakMode.TailTruncation
+        };
+        title.SetBinding(Label.TextProperty, nameof(ShelfHeaderRow.Title));
+
+        var detail = new Label
+        {
+            TextColor = Color.FromArgb("#A5B3C6"),
+            FontSize = 12,
+            HorizontalTextAlignment = TextAlignment.End,
+            VerticalTextAlignment = TextAlignment.Center
+        };
+        detail.SetBinding(Label.TextProperty, nameof(ShelfHeaderRow.Detail));
+
+        var grid = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto)
+            },
+            Children = { marker, title, detail }
+        };
+        Grid.SetColumn(title, 1);
+        Grid.SetColumn(detail, 2);
+
+        var border = new Border
+        {
+            Margin = margin,
+            Padding = new Thickness(10, 8),
+            Stroke = Color.FromArgb("#1E2A3A"),
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 8 },
+            BackgroundColor = Color.FromArgb("#111A27"),
+            Content = grid
+        };
+        border.GestureRecognizers.Add(new TapGestureRecognizer
+        {
+            Command = new Command<ShelfHeaderRow?>(ToggleShelfHeader),
+            CommandParameter = border.BindingContext
+        });
+        border.BindingContextChanged += (_, _) =>
+        {
+            if (border.GestureRecognizers.OfType<TapGestureRecognizer>().FirstOrDefault() is { } tap)
+            {
+                tap.CommandParameter = border.BindingContext;
+            }
+        };
+        return border;
+    }
+
+    private void ToggleShelfHeader(ShelfHeaderRow? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        var target = row.Level == 0 ? _collapsedSeries : _collapsedSeasons;
+        if (!target.Add(row.Key))
+        {
+            target.Remove(row.Key);
+        }
+
+        _ = ReloadAsync();
+    }
+
     private MovieListItem CreateMovieListItem(Movie movie)
     {
         var item = new MovieListItem
@@ -513,8 +657,18 @@ public sealed class MovieShelfPage : ContentPage
             MovieId = movie.Id,
             Title = movie.Title,
             Detail = $"{movie.SubtitleTracks.Count} subtitle / {movie.SceneMarkers.Count} scene",
+            SeriesKey = GetSeriesKey(movie),
+            SeriesTitle = GetSeriesTitle(movie),
+            SeasonKey = GetSeasonKey(movie),
+            SeasonTitle = GetSeasonTitle(movie),
+            SeriesDetail = FormatMovieSeriesDetail(movie),
+            TagsDetail = movie.Tags.Count == 0 ? string.Empty : $"tags: {string.Join(", ", movie.Tags)}",
+            ThumbnailPath = GetExistingThumbnailPath(movie),
             CacheState = "not cached"
         };
+        item.HasThumbnail = !string.IsNullOrWhiteSpace(item.ThumbnailPath);
+        item.HasSeriesDetail = !string.IsNullOrWhiteSpace(item.SeriesDetail);
+        item.HasTagsDetail = !string.IsNullOrWhiteSpace(item.TagsDetail);
 
         if (HasVideoCache(movie))
         {
@@ -556,6 +710,53 @@ public sealed class MovieShelfPage : ContentPage
 
     private View CreateMovieCard()
     {
+        const double ThumbnailWidth = 118;
+        const double ThumbnailHeight = 82;
+
+        var thumbnail = new Image
+        {
+            Aspect = Aspect.AspectFit,
+            WidthRequest = ThumbnailWidth,
+            HeightRequest = ThumbnailHeight,
+            BackgroundColor = Color.FromArgb("#101A27")
+        };
+        thumbnail.SetBinding(Image.SourceProperty, nameof(MovieListItem.ThumbnailPath));
+        thumbnail.SetBinding(IsVisibleProperty, nameof(MovieListItem.HasThumbnail));
+
+        var placeholder = new Grid
+        {
+            WidthRequest = ThumbnailWidth,
+            HeightRequest = ThumbnailHeight,
+            BackgroundColor = Color.FromArgb("#101A27"),
+            Children =
+            {
+                new Label
+                {
+                    Text = "MOVIE",
+                    TextColor = Color.FromArgb("#44546A"),
+                    FontSize = 11,
+                    FontAttributes = FontAttributes.Bold,
+                    HorizontalOptions = LayoutOptions.Center,
+                    VerticalOptions = LayoutOptions.Center
+                }
+            }
+        };
+        placeholder.SetBinding(IsVisibleProperty, nameof(MovieListItem.HasNoThumbnail));
+
+        var thumbnailFrame = new Border
+        {
+            WidthRequest = ThumbnailWidth,
+            HeightRequest = ThumbnailHeight,
+            Stroke = Color.FromArgb("#26364A"),
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 7 },
+            BackgroundColor = Color.FromArgb("#101A27"),
+            Content = new Grid
+            {
+                Children = { placeholder, thumbnail }
+            }
+        };
+
         var title = new Label
         {
             TextColor = Colors.White,
@@ -571,6 +772,30 @@ public sealed class MovieShelfPage : ContentPage
             FontSize = 12
         };
         detail.SetBinding(Label.TextProperty, nameof(MovieListItem.Detail));
+
+        var series = new Label
+        {
+            TextColor = Color.FromArgb("#F6D365"),
+            FontSize = 12,
+            LineBreakMode = LineBreakMode.TailTruncation
+        };
+        series.SetBinding(Label.TextProperty, nameof(MovieListItem.SeriesDetail));
+        series.SetBinding(IsVisibleProperty, nameof(MovieListItem.HasSeriesDetail));
+
+        var tags = new Label
+        {
+            TextColor = Color.FromArgb("#8CE7B2"),
+            FontSize = 11,
+            LineBreakMode = LineBreakMode.TailTruncation
+        };
+        tags.SetBinding(Label.TextProperty, nameof(MovieListItem.TagsDetail));
+        tags.SetBinding(IsVisibleProperty, nameof(MovieListItem.HasTagsDetail));
+
+        var textStack = new VerticalStackLayout
+        {
+            Spacing = 3,
+            Children = { title, series, detail, tags }
+        };
 
         var cache = new Label
         {
@@ -599,6 +824,7 @@ public sealed class MovieShelfPage : ContentPage
         {
             ColumnDefinitions =
             {
+                new ColumnDefinition(new GridLength(ThumbnailWidth)),
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Auto)
             },
@@ -607,14 +833,17 @@ public sealed class MovieShelfPage : ContentPage
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto)
             },
-            Children = { title, detail, cache, actionButton }
+            ColumnSpacing = 12,
+            Children = { thumbnailFrame, textStack, cache, actionButton }
         };
-        Grid.SetRow(detail, 1);
-        Grid.SetColumn(cache, 1);
+        Grid.SetRowSpan(thumbnailFrame, 2);
+        Grid.SetColumn(textStack, 1);
+        Grid.SetRowSpan(textStack, 2);
+        Grid.SetColumn(cache, 2);
         Grid.SetRow(cache, 1);
-        Grid.SetColumn(actionButton, 1);
+        Grid.SetColumn(actionButton, 2);
 
-        return new Border
+        var card = new Border
         {
             Margin = new Thickness(18, 6),
             Padding = new Thickness(14),
@@ -624,6 +853,67 @@ public sealed class MovieShelfPage : ContentPage
             BackgroundColor = Color.FromArgb("#0B111A"),
             Content = grid
         };
+        card.GestureRecognizers.Add(new TapGestureRecognizer
+        {
+            Command = new Command<MovieListItem?>(item =>
+            {
+                if (item is not null)
+                {
+                    _ = OpenMovieAsync(item.MovieId);
+                }
+            }),
+            CommandParameter = card.BindingContext
+        });
+        card.BindingContextChanged += (_, _) =>
+        {
+            if (card.GestureRecognizers.OfType<TapGestureRecognizer>().FirstOrDefault() is { } tap)
+            {
+                tap.CommandParameter = card.BindingContext;
+            }
+        };
+        return card;
+    }
+
+    private static string? GetExistingThumbnailPath(Movie movie)
+    {
+        return !string.IsNullOrWhiteSpace(movie.Video.ThumbnailPath)
+            && File.Exists(movie.Video.ThumbnailPath)
+            ? movie.Video.ThumbnailPath
+            : null;
+    }
+
+    private static string FormatMovieSeriesDetail(Movie movie)
+    {
+        var series = string.IsNullOrWhiteSpace(movie.SeriesTitle) ? string.Empty : movie.SeriesTitle;
+        var seasonEpisode = FormatSeasonEpisode(movie);
+        return string.Join(' ', new[] { series, seasonEpisode }.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static string GetSeriesTitle(Movie movie)
+    {
+        return string.IsNullOrWhiteSpace(movie.SeriesTitle) ? "未分類" : movie.SeriesTitle.Trim();
+    }
+
+    private static string GetSeriesKey(Movie movie)
+    {
+        return GetSeriesTitle(movie).ToLowerInvariant();
+    }
+
+    private static string GetSeasonTitle(Movie movie)
+    {
+        return movie.SeasonNumber is null ? "Season 未設定" : $"Season {movie.SeasonNumber.Value}";
+    }
+
+    private static string GetSeasonKey(Movie movie)
+    {
+        return movie.SeasonNumber?.ToString("000", System.Globalization.CultureInfo.InvariantCulture) ?? "none";
+    }
+
+    private static string FormatSeasonEpisode(Movie movie)
+    {
+        var season = movie.SeasonNumber is null ? string.Empty : $"S{movie.SeasonNumber.Value:00}";
+        var episode = movie.EpisodeNumber is null ? string.Empty : $"E{movie.EpisodeNumber.Value:00}";
+        return string.Join(' ', new[] { season, episode }.Where(part => part.Length > 0));
     }
 
     private static Button CreateHeaderButton(string text)
@@ -706,6 +996,36 @@ public sealed class MovieShelfPage : ContentPage
         catch
         {
             // Temporary Drive downloads are best-effort cleanup.
+        }
+    }
+
+    private sealed record ShelfHeaderRow(
+        string Key,
+        string? ParentKey,
+        string Title,
+        string Detail,
+        int Level,
+        bool IsExpanded)
+    {
+        public string Marker => IsExpanded ? "v" : ">";
+    }
+
+    private sealed class ShelfRowTemplateSelector : DataTemplateSelector
+    {
+        public DataTemplate SeriesTemplate { get; set; } = null!;
+
+        public DataTemplate SeasonTemplate { get; set; } = null!;
+
+        public DataTemplate MovieTemplate { get; set; } = null!;
+
+        protected override DataTemplate OnSelectTemplate(object item, BindableObject container)
+        {
+            return item switch
+            {
+                ShelfHeaderRow { Level: 0 } => SeriesTemplate,
+                ShelfHeaderRow => SeasonTemplate,
+                _ => MovieTemplate
+            };
         }
     }
 }
