@@ -108,7 +108,7 @@ The Android package name is fixed:
 net.coffeewebjp.coffeemovie.reader
 ```
 
-Google Cloud Android OAuth clients are tied to both package name and signing certificate SHA-1. To avoid re-registering Google Cloud settings when changing PCs, use one shared release keystore for CoffeeMovie Reader.
+Google Cloud Android OAuth clients are tied to both package name and signing certificate SHA-1. To avoid a different development PC producing an APK that Android treats as a different app identity, use one shared release keystore for CoffeeMovie Reader.
 
 Create it once:
 
@@ -131,3 +131,5 @@ Release build:
 ```powershell
 dotnet build src\CoffeeMovie.Reader\CoffeeMovie.Reader.csproj -c Release -f net10.0-android
 ```
+
+Use the Release APK when overwriting an app installed from another PC. Debug APKs are signed by the local debug keystore and may fail with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
