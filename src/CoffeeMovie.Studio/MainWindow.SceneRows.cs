@@ -1,6 +1,8 @@
 using System.Globalization;
+using System.Windows;
 using System.Windows.Media;
 using CoffeeMovie.Core.Models;
+using CoffeeMovie.Storage.Models;
 
 namespace CoffeeMovie.Studio;
 
@@ -8,9 +10,11 @@ public partial class MainWindow
 {
     private void RenderSceneRows(SubtitleTrack? subtitleTrack)
     {
+        SetSceneGridGlobalMode(false);
         if (subtitleTrack is null)
         {
             ScenesDataGrid.ItemsSource = null;
+            SceneResultsModeTextBlock.Text = "動画または字幕を選択してください";
             return;
         }
 
@@ -33,25 +37,126 @@ public partial class MainWindow
         if (tagFilters.Count > 0)
         {
             rows = rows
-                .Where(row =>
-                {
-                    var tags = ParseTags(row.Tags);
-                    if (row.IsFlagged)
-                    {
-                        AddTag(tags, FlagTagName);
-                    }
-
-                    return tagFilters.All(filter => tags.Any(tag => ContainsText(tag, filter)));
-                })
+                .Where(row => SceneRowMatchesTags(row, tagFilters))
                 .ToList();
         }
 
         ScenesDataGrid.ItemsSource = rows;
+        SceneResultsModeTextBlock.Text = $"{rows.Count} / {subtitleTrack.Cues.Count} cues";
+    }
+
+    private async Task RenderGlobalSubtitleTagResultsAsync()
+    {
+        var library = await _libraryStore.LoadAsync();
+        RenderGlobalSubtitleTagResults(library);
+    }
+
+    private void RenderGlobalSubtitleTagResults(MovieLibrary library)
+    {
+        var subtitleTagFilters = ParseTags(SubtitleTagFilterTextBox.Text);
+        if (subtitleTagFilters.Count == 0)
+        {
+            RenderSceneRows(_previewSubtitleTrack);
+            return;
+        }
+
+        SetSceneGridGlobalMode(true);
+
+        var sceneTagFilters = ParseTags(SceneTagFilterTextBox.Text);
+        var allTagFilters = subtitleTagFilters
+            .Concat(sceneTagFilters)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var rows = new List<SceneRow>();
+        var matchedMovies = library.Movies
+            .Where(MatchesMovieFilters)
+            .OrderBy(movie => string.IsNullOrWhiteSpace(movie.SeriesTitle) ? movie.Title : movie.SeriesTitle, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(movie => movie.SeasonNumber ?? int.MaxValue)
+            .ThenBy(movie => movie.EpisodeNumber ?? int.MaxValue)
+            .ThenBy(movie => movie.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var movie in matchedMovies)
+        {
+            foreach (var track in movie.SubtitleTracks)
+            {
+                foreach (var cue in track.Cues.Where(cue => !string.IsNullOrWhiteSpace(cue.Text)))
+                {
+                    var learningState = FindCueLearningState(track, cue);
+                    var row = new SceneRow(
+                        cue,
+                        learningState,
+                        CreateSceneRowBackground(learningState, _subtitleTagHighlightColor),
+                        movie,
+                        track,
+                        isGlobalResult: true);
+                    if (FlaggedOnlyCheckBox.IsChecked == true && !row.IsFlagged)
+                    {
+                        continue;
+                    }
+
+                    if (!SceneRowMatchesTags(row, allTagFilters))
+                    {
+                        continue;
+                    }
+
+                    rows.Add(row);
+                    if (rows.Count >= 1500)
+                    {
+                        break;
+                    }
+                }
+
+                if (rows.Count >= 1500)
+                {
+                    break;
+                }
+            }
+
+            if (rows.Count >= 1500)
+            {
+                break;
+            }
+        }
+
+        ScenesDataGrid.ItemsSource = rows;
+        var limitText = rows.Count >= 1500 ? " / 上限1500件" : string.Empty;
+        SceneResultsModeTextBlock.Text = $"字幕タグ検索: {string.Join(", ", subtitleTagFilters)} / {rows.Count}件{limitText}";
+    }
+
+    private bool HasGlobalSubtitleTagFilter()
+    {
+        return ParseTags(SubtitleTagFilterTextBox.Text).Count > 0;
+    }
+
+    private void SetSceneGridGlobalMode(bool isGlobal)
+    {
+        SceneMovieColumn.Visibility = isGlobal ? Visibility.Visible : Visibility.Collapsed;
+        SceneTrackColumn.Visibility = isGlobal ? Visibility.Visible : Visibility.Collapsed;
+        ScenesDataGrid.IsReadOnly = isGlobal;
+        SelectSelectedSceneTagsButton.IsEnabled = !isGlobal && _selectedMovie is not null;
+        ClearSelectedSceneTagsButton.IsEnabled = !isGlobal && _selectedMovie is not null;
+    }
+
+    private static bool SceneRowMatchesTags(SceneRow row, IReadOnlyCollection<string> tagFilters)
+    {
+        if (tagFilters.Count == 0)
+        {
+            return true;
+        }
+
+        var tags = ParseTags(row.Tags);
+        if (row.IsFlagged)
+        {
+            AddTag(tags, FlagTagName);
+        }
+
+        return tagFilters.All(filter => tags.Any(tag => ContainsText(tag, filter)));
     }
 
     private async Task SaveSceneRowLearningStateAsync(SceneRow row)
     {
-        if (_selectedMovie is null || _previewSubtitleTrack is null)
+        if (row.IsGlobalResult || _selectedMovie is null || _previewSubtitleTrack is null)
         {
             return;
         }
@@ -104,6 +209,12 @@ public partial class MainWindow
         if (_selectedMovie is null || _previewSubtitleTrack is null || ScenesDataGrid.SelectedItem is not SceneRow row)
         {
             SetStatus("タイミングを調整する字幕行を選択してください。");
+            return;
+        }
+
+        if (row.IsGlobalResult)
+        {
+            SetStatus("動画またぎの字幕タグ検索結果は、ダブルクリックで動画を開いてから編集してください。");
             return;
         }
 
@@ -180,6 +291,12 @@ public partial class MainWindow
             return;
         }
 
+        if (row.IsGlobalResult)
+        {
+            SetStatus("動画またぎの字幕タグ検索結果は、ダブルクリックで動画を開いてから編集してください。");
+            return;
+        }
+
         var value = FormatCueEditTimestamp(PreviewPlayer.Position);
         if (setStart)
         {
@@ -195,7 +312,7 @@ public partial class MainWindow
 
     private async Task SaveSceneRowTimingAsync(SceneRow row)
     {
-        if (_selectedMovie is null || _previewSubtitleTrack is null)
+        if (row.IsGlobalResult || _selectedMovie is null || _previewSubtitleTrack is null)
         {
             return;
         }

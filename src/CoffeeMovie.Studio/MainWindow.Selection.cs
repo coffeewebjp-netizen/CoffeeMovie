@@ -156,6 +156,11 @@ public partial class MainWindow
 
     private async void OnMovieSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
+        if (_isOpeningGlobalSceneRow)
+        {
+            return;
+        }
+
         if (MoviesListBox.SelectedItem is not MovieListItem item)
         {
             _selectedMovie = null;
@@ -166,9 +171,13 @@ public partial class MainWindow
         var library = await _libraryStore.LoadAsync();
         _selectedMovie = library.Movies.FirstOrDefault(movie => string.Equals(movie.Id, item.MovieId, StringComparison.Ordinal));
         RenderMovieDetails(_selectedMovie);
+        if (HasGlobalSubtitleTagFilter())
+        {
+            RenderGlobalSubtitleTagResults(library);
+        }
     }
 
-    private void OnSubtitleSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    private async void OnSubtitleSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (_isUpdatingSelection || _selectedMovie is null)
         {
@@ -180,15 +189,74 @@ public partial class MainWindow
             _previewSubtitleTrack = null;
             RemoveSubtitleButton.IsEnabled = false;
             HidePreviewSubtitle();
-            RenderSceneRows(null);
+            if (HasGlobalSubtitleTagFilter())
+            {
+                await RenderGlobalSubtitleTagResultsAsync();
+            }
+            else
+            {
+                RenderSceneRows(null);
+            }
             return;
         }
 
         RemoveSubtitleButton.IsEnabled = true;
         _previewSubtitleTrack = _selectedMovie.SubtitleTracks
             .FirstOrDefault(track => string.Equals(track.Id, row.TrackId, StringComparison.Ordinal));
-        RenderSceneRows(_previewSubtitleTrack);
+        if (HasGlobalSubtitleTagFilter())
+        {
+            await RenderGlobalSubtitleTagResultsAsync();
+        }
+        else
+        {
+            RenderSceneRows(_previewSubtitleTrack);
+        }
+
         UpdatePreviewSubtitleAtCurrentPosition();
+    }
+
+    private async Task OpenGlobalSceneRowAsync(SceneRow row)
+    {
+        if (string.IsNullOrWhiteSpace(row.MovieId) || string.IsNullOrWhiteSpace(row.TrackId))
+        {
+            return;
+        }
+
+        var library = await _libraryStore.LoadAsync();
+        var movie = library.Movies.FirstOrDefault(candidate => string.Equals(candidate.Id, row.MovieId, StringComparison.Ordinal));
+        var track = movie?.SubtitleTracks.FirstOrDefault(candidate => string.Equals(candidate.Id, row.TrackId, StringComparison.Ordinal));
+        if (movie is null || track is null)
+        {
+            SetStatus("字幕タグ検索結果の動画または字幕が見つかりませんでした。");
+            return;
+        }
+
+        if (_movies.FirstOrDefault(item => string.Equals(item.MovieId, row.MovieId, StringComparison.Ordinal)) is { } listItem)
+        {
+            _isOpeningGlobalSceneRow = true;
+            try
+            {
+                MoviesListBox.SelectedItem = listItem;
+                MoviesListBox.ScrollIntoView(listItem);
+            }
+            finally
+            {
+                _isOpeningGlobalSceneRow = false;
+            }
+        }
+
+        _selectedMovie = movie;
+        RenderMovieDetails(movie);
+        _previewSubtitleTrack = track;
+        if (SubtitlesDataGrid.ItemsSource is IEnumerable<SubtitleRow> subtitleRows)
+        {
+            SubtitlesDataGrid.SelectedItem = subtitleRows
+                .FirstOrDefault(candidate => string.Equals(candidate.TrackId, track.Id, StringComparison.Ordinal));
+        }
+
+        RenderGlobalSubtitleTagResults(library);
+        JumpPreviewTo(row.Start);
+        SetStatus($"字幕タグ検索から開きました: {movie.Title} / {row.Timestamp}");
     }
 
 }

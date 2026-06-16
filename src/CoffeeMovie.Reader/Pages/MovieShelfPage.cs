@@ -31,6 +31,40 @@ public sealed partial class MovieShelfPage : ContentPage
         HorizontalOptions = LayoutOptions.Center,
         VerticalOptions = LayoutOptions.Center
     };
+    private readonly Grid _startupLayer = new()
+    {
+        BackgroundColor = Color.FromArgb("#05070B"),
+        InputTransparent = false,
+        Opacity = 1
+    };
+    private readonly Image _startupIcon = new()
+    {
+        Source = ImageSource.FromFile("startup_icon.png"),
+        Aspect = Aspect.AspectFit,
+        WidthRequest = 300,
+        HeightRequest = 300,
+        HorizontalOptions = LayoutOptions.Center,
+        VerticalOptions = LayoutOptions.Center,
+        Scale = 0.9,
+        Opacity = 0
+    };
+    private readonly Label _startupTitle = new()
+    {
+        Text = "CoffeeMovie",
+        FontSize = 36,
+        FontAttributes = FontAttributes.Bold,
+        TextColor = Colors.White,
+        HorizontalTextAlignment = TextAlignment.Center,
+        Opacity = 0
+    };
+    private readonly Label _startupSubtitle = new()
+    {
+        Text = "Reader",
+        FontSize = 22,
+        TextColor = Color.FromArgb("#5DE0D0"),
+        HorizontalTextAlignment = TextAlignment.Center,
+        Opacity = 0
+    };
     private readonly Button _importButton = CreateHeaderButton("動画");
     private readonly Button _driveSettingsButton = CreateHeaderButton("Drive設定");
     private readonly Button _syncButton = CreateHeaderButton("同期");
@@ -39,6 +73,7 @@ public sealed partial class MovieShelfPage : ContentPage
     private readonly HashSet<string> _collapsedSeasons = new(StringComparer.OrdinalIgnoreCase);
     private bool _isSyncing;
     private bool _isOpeningMovie;
+    private bool _playedStartupAnimation;
 
     public MovieShelfPage(
         ReaderLibraryService libraryService,
@@ -129,7 +164,21 @@ public sealed partial class MovieShelfPage : ContentPage
             Children = { _summaryLabel }
         };
 
-        Content = new Grid
+        var startupLogo = new VerticalStackLayout
+        {
+            Spacing = 8,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                _startupIcon,
+                _startupTitle,
+                _startupSubtitle
+            }
+        };
+        _startupLayer.Children.Add(startupLogo);
+
+        var root = new Grid
         {
             RowDefinitions =
             {
@@ -141,17 +190,86 @@ public sealed partial class MovieShelfPage : ContentPage
             {
                 header,
                 summary,
-                moviesLayer
+                moviesLayer,
+                _startupLayer
             }
         };
         Grid.SetRow(summary, 1);
         Grid.SetRow(moviesLayer, 2);
+        Grid.SetRowSpan(_startupLayer, 3);
+        Content = root;
     }
 
     protected override async void OnAppearing()
     {
         base.OnAppearing();
+        _ = PlayStartupAnimationAsync();
         await ReloadAsync();
+    }
+
+    private async Task PlayStartupAnimationAsync()
+    {
+        if (_playedStartupAnimation)
+        {
+            return;
+        }
+
+        _playedStartupAnimation = true;
+        _startupLayer.IsVisible = true;
+        _startupLayer.InputTransparent = false;
+        _startupLayer.Opacity = 1;
+        _startupIcon.Opacity = 0;
+        _startupIcon.Scale = 0.9;
+        _startupTitle.Opacity = 0;
+        _startupSubtitle.Opacity = 0;
+
+        await Task.Delay(220);
+        await Task.WhenAll(
+            _startupIcon.FadeToAsync(1, 520, Easing.CubicOut),
+            _startupTitle.FadeToAsync(1, 520, Easing.CubicOut),
+            _startupSubtitle.FadeToAsync(1, 520, Easing.CubicOut));
+        await Task.Delay(120);
+        await RunStartupExitAnimationAsync();
+        _startupLayer.IsVisible = false;
+        _startupLayer.InputTransparent = true;
+    }
+
+    private Task RunStartupExitAnimationAsync()
+    {
+        var completed = new TaskCompletionSource();
+        var animation = new Animation();
+        animation.Add(0, 1, new Animation(
+            value => _startupIcon.Scale = value,
+            0.9,
+            5.6,
+            Easing.CubicIn));
+        animation.Add(0, 1, new Animation(
+            value => _startupIcon.Opacity = value,
+            1,
+            0,
+            Easing.CubicIn));
+        animation.Add(0, 0.35, new Animation(
+            value => _startupTitle.Opacity = value,
+            1,
+            0,
+            Easing.CubicIn));
+        animation.Add(0, 0.35, new Animation(
+            value => _startupSubtitle.Opacity = value,
+            1,
+            0,
+            Easing.CubicIn));
+        animation.Add(0, 1, new Animation(
+            value => _startupLayer.Opacity = value,
+            1,
+            0,
+            Easing.CubicIn));
+        animation.Commit(
+            this,
+            "StartupExit",
+            rate: 16,
+            length: 1280,
+            finished: (_, _) => completed.TrySetResult());
+        return completed.Task;
     }
 
     private async Task ReloadAsync()

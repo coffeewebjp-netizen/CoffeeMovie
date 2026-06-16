@@ -19,7 +19,10 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Groups the movie shelf by series title and season.
 - Filters the movie shelf by text, movie tags, and subtitle tags.
 - Lets movie and subtitle tag fields open a multi-select picker from registered tag definitions.
+- Labels the shelf filters as movie search, movie tag filtering, and subtitle tag filtering.
 - Filters subtitle cue rows by subtitle tags in addition to the flag-only filter.
+- Can search tagged subtitle cue rows across matching movies when a subtitle tag filter is active.
+- Lets cue tags be changed through the same multi-select picker used by movie and subtitle tags.
 - Highlights tagged subtitle rows with a configurable color.
 - Stores cue-level free-form notes, AI notes, listening metrics, and shadowing metrics.
 - Generates English subtitles through a configurable WhisperX command.
@@ -36,6 +39,8 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 ## Android Reader
 
 - Uses the stable Android identity `net.coffeewebjp.coffeemovie.reader`.
+- Uses a transparent PNG app icon, Android launcher icon mapping, and a matching startup icon/splash asset.
+- Shows a CoffeeBook-style startup overlay that briefly displays the app icon, zooms it, and fades into the shelf.
 - Supports Google Drive OAuth and folder configuration.
 - Lists `.coffeemovie` packages and paired `.coffeemovie.json` sidecars from the configured Drive folder.
 - Refreshes sidecar metadata before downloading large package bytes.

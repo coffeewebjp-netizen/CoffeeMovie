@@ -99,6 +99,8 @@ adb install -r -d .\src\CoffeeMovie.Reader\bin\Release\net10.0-android\net.coffe
 
 If installation fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, stop and inspect the APK signature. Do not uninstall first unless data loss is acceptable.
 
+When testing a replacement APK on an already installed device, keep `ApplicationVersion` moving forward so Android sees the APK as an update. `ApplicationVersion` becomes Android `versionCode`; increasing it allows `adb install -r` to preserve app-local cache and settings while replacing resources such as launcher icons and splash/startup images.
+
 ## Data Safety Note
 
 Drive packages can restore shared movie/subtitle metadata and video bytes, but the Android app-local store also contains device-side state. Before uninstalling or migrating devices, use the Reader shelf `Backup` action to export a learning-state JSON that contains mobile tags, notes, playback state, and shadowing metrics. Drive-native automatic backup/restore is still a future step.

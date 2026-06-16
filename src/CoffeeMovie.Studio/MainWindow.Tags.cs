@@ -64,12 +64,34 @@ public partial class MainWindow
         }
     }
 
+    private async void OnClearMovieTagFilterClicked(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(MovieTagFilterTextBox.Text))
+        {
+            return;
+        }
+
+        MovieTagFilterTextBox.Clear();
+        await RefreshMoviesAsync(_selectedMovie?.Id);
+    }
+
     private async void OnSelectSubtitleTagFilterClicked(object sender, RoutedEventArgs e)
     {
         if (await SelectTagsIntoTextBoxAsync(SubtitleTagFilterTextBox, TagScope.Subtitle, "字幕タグで動画を絞り込み"))
         {
             await RefreshMoviesAsync(_selectedMovie?.Id);
         }
+    }
+
+    private async void OnClearSubtitleTagFilterClicked(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(SubtitleTagFilterTextBox.Text))
+        {
+            return;
+        }
+
+        SubtitleTagFilterTextBox.Clear();
+        await RefreshMoviesAsync(_selectedMovie?.Id);
     }
 
     private async void OnSelectMovieTagsClicked(object sender, RoutedEventArgs e)
@@ -84,8 +106,19 @@ public partial class MainWindow
     {
         if (await SelectTagsIntoTextBoxAsync(SceneTagFilterTextBox, TagScope.Subtitle, "字幕タグで行を絞り込み"))
         {
-            RenderSceneRows(_previewSubtitleTrack);
+            await RefreshSceneTagFilterResultsAsync();
         }
+    }
+
+    private async void OnClearSceneTagFilterClicked(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(SceneTagFilterTextBox.Text))
+        {
+            return;
+        }
+
+        SceneTagFilterTextBox.Clear();
+        await RefreshSceneTagFilterResultsAsync();
     }
 
     private async void OnSelectSelectedSceneTagsClicked(object sender, RoutedEventArgs e)
@@ -93,6 +126,46 @@ public partial class MainWindow
         if (ScenesDataGrid.SelectedItem is not SceneRow row)
         {
             SetStatus("タグを付け替える字幕行を選択してください。");
+            return;
+        }
+
+        await SelectSceneRowTagsAsync(row);
+    }
+
+    private async void OnClearSelectedSceneTagsClicked(object sender, RoutedEventArgs e)
+    {
+        if (ScenesDataGrid.SelectedItem is not SceneRow row)
+        {
+            SetStatus("タグをクリアする字幕行を選択してください。");
+            return;
+        }
+
+        if (row.IsGlobalResult)
+        {
+            SetStatus("動画またぎの字幕タグ検索結果は、ダブルクリックで動画を開いてからタグを編集してください。");
+            return;
+        }
+
+        row.Tags = string.Empty;
+        row.IsFlagged = false;
+        await SaveSceneRowLearningStateAsync(row);
+        RenderSceneRows(_previewSubtitleTrack);
+    }
+
+    private async void OnSelectSceneRowTagsClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: SceneRow row })
+        {
+            ScenesDataGrid.SelectedItem = row;
+            await SelectSceneRowTagsAsync(row);
+        }
+    }
+
+    private async Task SelectSceneRowTagsAsync(SceneRow row)
+    {
+        if (row.IsGlobalResult)
+        {
+            SetStatus("動画またぎの字幕タグ検索結果は、ダブルクリックで動画を開いてからタグを編集してください。");
             return;
         }
 
@@ -105,6 +178,17 @@ public partial class MainWindow
         row.Tags = temp.Text;
         row.IsFlagged = ParseTags(row.Tags).Any(IsFlagTag);
         await SaveSceneRowLearningStateAsync(row);
+        RenderSceneRows(_previewSubtitleTrack);
+    }
+
+    private async Task RefreshSceneTagFilterResultsAsync()
+    {
+        if (HasGlobalSubtitleTagFilter())
+        {
+            await RenderGlobalSubtitleTagResultsAsync();
+            return;
+        }
+
         RenderSceneRows(_previewSubtitleTrack);
     }
 

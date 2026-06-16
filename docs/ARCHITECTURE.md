@@ -40,7 +40,7 @@ Studio code:
 
 Reader code:
 
-- `MovieShelfPage.cs`: MAUI shelf layout, series/season tree shell, card UI, movie opening, and cache-state display.
+- `MovieShelfPage.cs`: MAUI shelf layout, startup icon overlay animation, series/season tree shell, card UI, movie opening, and cache-state display.
 - `MovieShelfPage.Tree.cs`: series -> season -> episode row construction and collapse state.
 - `MovieShelfPage.Sync.cs`: Google Drive sync UI flow, sidecar/package download decisions, and progress text.
 - `MovieShelfPage.Backup.cs`: local/shareable learning-state backup export/import UI.
@@ -87,7 +87,8 @@ Studio prepares videos and subtitles before they are watched on mobile:
 5. Show English above Japanese when paired subtitle display is enabled.
 6. Edit cue start/end timing, nudge selected cues, and optionally sync timing to the paired track.
 7. Store cue tags, notes, flag state, listening metrics, and shadowing metrics on the subtitle track.
-8. Export sidecar metadata for future Drive-first sync.
+8. Use the subtitle tag filter to inspect tagged cue rows inside the selected subtitle track, or across matching movies when a shelf subtitle-tag filter is active.
+9. Export sidecar metadata for future Drive-first sync.
 
 The full-size preview tab reuses the same subtitle-line selection logic as the edit preview, but has its own `MediaElement` and seek state. Both previews are driven by the shared preview timer so subtitle overlays continue to follow playback after media-open and seek operations.
 
@@ -179,3 +180,15 @@ Reader also reuses the same thumbnail on the player surface while the WebView an
 ## Series Metadata Flow
 
 `Movie` stores optional `seriesTitle`, `seasonNumber`, and `episodeNumber` fields. Studio lets the user edit these fields directly and writes them into the package sidecar. Reader imports the same fields and renders the shelf as a collapsible series -> season -> episode tree.
+
+## Reader Icon And Startup Flow
+
+Reader uses PNG assets for the Android launcher icon and startup experience:
+
+- `Resources/AppIcon/appicon.png`
+- `Resources/Images/startup_icon.png`
+- `Resources/Splash/splash_composite.png`
+
+The project file registers `appicon.png` as the MAUI icon and the Android manifest explicitly maps the app to `@mipmap/appicon` and `@mipmap/appicon_round`. The startup overlay in `MovieShelfPage.cs` uses `startup_icon.png` on the same dark shelf background, then scales and fades the icon away once per page lifetime.
+
+These images should stay alpha-enabled PNGs. If the source image has a white or checkerboard background baked in, regenerate the app assets before building so the Android splash and in-app startup overlay blend into `#05070B`.

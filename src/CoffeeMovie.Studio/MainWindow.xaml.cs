@@ -51,6 +51,7 @@ public partial class MainWindow
     private bool _isUpdatingSelection;
     private bool _isUpdatingPreferences;
     private bool _isUpdatingPreviewSlider;
+    private bool _isOpeningGlobalSceneRow;
 
     public MainWindow()
     {
@@ -256,6 +257,16 @@ public partial class MainWindow
             _selectedMovie = null;
             RenderMovieDetails(null);
         }
+        else
+        {
+            _selectedMovie = library.Movies.FirstOrDefault(movie => string.Equals(movie.Id, selectedItem.MovieId, StringComparison.Ordinal));
+            RenderMovieDetails(_selectedMovie);
+        }
+
+        if (HasGlobalSubtitleTagFilter())
+        {
+            RenderGlobalSubtitleTagResults(library);
+        }
     }
 
     private void RenderMovieDetails(Movie? movie)
@@ -279,7 +290,7 @@ public partial class MainWindow
                 UpdateSubtitleGenerationPanel(null);
                 _previewSubtitleTrack = null;
                 SubtitlesDataGrid.ItemsSource = null;
-                ScenesDataGrid.ItemsSource = null;
+                RenderSceneRows(null);
                 HidePreviewSubtitle();
                 HideFullPreviewSubtitle();
                 return;
@@ -343,6 +354,8 @@ public partial class MainWindow
         SyncPairedSubtitleCheckBox.IsEnabled = enabled;
         OriginalSubtitleWriteBackCheckBox.IsEnabled = enabled;
         FlaggedOnlyCheckBox.IsEnabled = enabled;
+        SelectSelectedSceneTagsButton.IsEnabled = enabled;
+        ClearSelectedSceneTagsButton.IsEnabled = enabled;
         PlayFlaggedButton.IsEnabled = enabled;
         EnglishSubtitlePositionComboBox.IsEnabled = enabled;
         JapaneseSubtitlePositionComboBox.IsEnabled = enabled;

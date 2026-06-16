@@ -123,10 +123,16 @@ public partial class MainWindow
         }
     }
 
-    private void OnSceneMouseDoubleClick(object sender, MouseButtonEventArgs e)
+    private async void OnSceneMouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (ScenesDataGrid.SelectedItem is SceneRow row)
         {
+            if (row.IsGlobalResult)
+            {
+                await OpenGlobalSceneRowAsync(row);
+                return;
+            }
+
             JumpPreviewTo(row.Start);
         }
     }
@@ -136,7 +142,8 @@ public partial class MainWindow
         if (_isUpdatingSelection
             || _selectedMovie is null
             || _previewSubtitleTrack is null
-            || ScenesDataGrid.CurrentItem is not SceneRow row)
+            || ScenesDataGrid.CurrentItem is not SceneRow row
+            || row.IsGlobalResult)
         {
             return;
         }
@@ -146,7 +153,7 @@ public partial class MainWindow
 
     private async void OnSceneCellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
     {
-        if (_isUpdatingSelection || e.Row.Item is not SceneRow row)
+        if (_isUpdatingSelection || e.Row.Item is not SceneRow row || row.IsGlobalResult)
         {
             return;
         }
@@ -168,20 +175,32 @@ public partial class MainWindow
         await SaveSceneRowLearningStateAsync(row);
     }
 
-    private void OnFlaggedOnlyChanged(object sender, RoutedEventArgs e)
+    private async void OnFlaggedOnlyChanged(object sender, RoutedEventArgs e)
     {
         if (_isUpdatingSelection)
         {
             return;
         }
 
+        if (HasGlobalSubtitleTagFilter())
+        {
+            await RenderGlobalSubtitleTagResultsAsync();
+            return;
+        }
+
         RenderSceneRows(_previewSubtitleTrack);
     }
 
-    private void OnSceneFilterChanged(object sender, TextChangedEventArgs e)
+    private async void OnSceneFilterChanged(object sender, TextChangedEventArgs e)
     {
         if (_isUpdatingSelection)
         {
+            return;
+        }
+
+        if (HasGlobalSubtitleTagFilter())
+        {
+            await RenderGlobalSubtitleTagResultsAsync();
             return;
         }
 

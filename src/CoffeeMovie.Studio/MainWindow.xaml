@@ -55,21 +55,42 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
+                        <TextBlock Text="動画検索"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   FontSize="12"
+                                   Margin="0,0,0,3" />
                         <TextBox x:Name="MovieSearchTextBox"
-                                 Height="30"
-                                 Margin="0,0,0,6"
+                                 Grid.Row="1"
+                                 Height="34"
+                                 Padding="8,4"
+                                 Margin="0,0,0,8"
                                  TextChanged="OnMovieFilterChanged"
                                  ToolTip="タイトル、作品名、Season、Episodeで検索" />
+                        <TextBlock Grid.Row="2"
+                                   Text="動画タグ絞り込み"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   FontSize="12"
+                                   Margin="0,0,0,3" />
                         <TextBox x:Name="MovieTagFilterTextBox"
-                                 Grid.Row="1"
-                                 Height="30"
-                                 Margin="0,0,0,6"
+                                 Grid.Row="3"
+                                 Height="34"
+                                 Padding="8,4"
+                                 Margin="0,0,0,8"
                                  TextChanged="OnMovieFilterChanged"
                                  ToolTip="動画タグで絞り込み" />
+                        <TextBlock Grid.Row="4"
+                                   Text="字幕タグ絞り込み"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   FontSize="12"
+                                   Margin="0,0,0,3" />
                         <TextBox x:Name="SubtitleTagFilterTextBox"
-                                 Grid.Row="2"
-                                 Height="30"
+                                 Grid.Row="5"
+                                 Height="34"
+                                 Padding="8,4"
                                  TextChanged="OnMovieFilterChanged"
                                  ToolTip="字幕タグを含む動画で絞り込み" />
                     </Grid>
@@ -115,14 +136,16 @@
             <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8">
                 <TabControl x:Name="MainTabControl">
                     <TabItem x:Name="EditTabItem" Header="編集">
-                <Grid Margin="14">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                <Grid Margin="14" MinWidth="760">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="170" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
+                        <RowDefinition Height="420" MinHeight="320" />
                     </Grid.RowDefinitions>
 
                     <Grid Grid.Row="0">
@@ -376,16 +399,33 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="字幕" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <TextBlock Grid.Row="0"
+                                   Grid.Column="0"
+                                   Text="字幕ファイル"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,0,8" />
                         <Grid Grid.Row="0" Grid.Column="2" Margin="0,0,0,8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="字幕シーン" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <StackPanel>
+                                <TextBlock Text="字幕シーン" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                <TextBlock x:Name="SceneResultsModeTextBlock"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           FontSize="12"
+                                           Margin="0,3,0,0" />
+                            </StackPanel>
                             <TextBlock Grid.Column="1"
                                        Text="タグ色"
                                        Foreground="{StaticResource MutedBrush}"
@@ -410,13 +450,41 @@
                                       Margin="0,0,12,0"
                                       Checked="OnFlaggedOnlyChanged"
                                       Unchecked="OnFlaggedOnlyChanged" />
+                            <Button x:Name="SelectSelectedSceneTagsButton"
+                                     Grid.Column="4"
+                                     Content="選択行タグ"
+                                     Click="OnSelectSelectedSceneTagsClicked"
+                                     Background="#121A26"
+                                     Foreground="White"
+                                     BorderBrush="#27364A" />
+                            <Button x:Name="ClearSelectedSceneTagsButton"
+                                     Grid.Column="5"
+                                     Content="行タグクリア"
+                                     Click="OnClearSelectedSceneTagsClicked"
+                                     Background="#121A26"
+                                     Foreground="White"
+                                     BorderBrush="#27364A" />
                             <Button x:Name="PlayFlaggedButton"
-                                    Grid.Column="4"
+                                    Grid.Column="6"
                                     Content="次のflag再生"
                                     Click="OnPlayNextFlaggedCueClicked"
                                     Background="#121A26"
                                     Foreground="White"
                                     BorderBrush="#27364A" />
+                            <StackPanel Grid.Row="1"
+                                        Grid.ColumnSpan="7"
+                                        Orientation="Horizontal"
+                                        VerticalAlignment="Center"
+                                        Margin="0,8,0,0">
+                                <TextBlock Text="字幕タグ絞り込み"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,8,0" />
+                                <TextBox x:Name="SceneTagFilterTextBox"
+                                         Width="160"
+                                         TextChanged="OnSceneFilterChanged"
+                                         ToolTip="カンマ区切りで字幕タグを絞り込み" />
+                            </StackPanel>
                         </Grid>
 
                         <StackPanel Grid.Row="1"
@@ -470,48 +538,39 @@
                                       VerticalAlignment="Center" />
                         </StackPanel>
 
-                        <StackPanel Grid.Row="0"
-                                    Grid.Column="0"
-                                    Orientation="Horizontal"
-                                    VerticalAlignment="Center"
-                                    Margin="48,0,0,8">
-                            <TextBlock Text="字幕タグ"
-                                       Foreground="{StaticResource MutedBrush}"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,8,0" />
-                            <TextBox x:Name="SceneTagFilterTextBox"
-                                     Width="132"
-                                     TextChanged="OnSceneFilterChanged"
-                                     ToolTip="カンマ区切りで字幕タグを絞り込み" />
-                        </StackPanel>
-
-                        <Button x:Name="RemoveSubtitleButton"
-                                Grid.Row="0"
-                                Grid.Column="0"
-                                Content="削除"
-                                HorizontalAlignment="Right"
-                                Margin="0,0,0,8"
-                                Click="OnRemoveSubtitleClicked"
-                                Background="#121A26"
-                                Foreground="White"
-                                BorderBrush="#27364A" />
-
-                        <DataGrid x:Name="SubtitlesDataGrid"
-                                  Grid.Row="1"
-                                  Grid.RowSpan="2"
-                                  Grid.Column="0"
-                                  SelectionMode="Single"
-                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                  SelectionChanged="OnSubtitleSelectionChanged">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Label" Binding="{Binding Label}" Width="*" />
-                                <DataGridTextColumn Header="Lang" Binding="{Binding Language}" Width="55" />
-                                <DataGridTextColumn Header="Role" Binding="{Binding Role}" Width="110" />
-                                <DataGridTextColumn Header="形式" Binding="{Binding Format}" Width="80" />
-                                <DataGridTextColumn Header="Cue" Binding="{Binding CueCount}" Width="70" />
-                            </DataGrid.Columns>
-                        </DataGrid>
+                        <Grid Grid.Row="1"
+                              Grid.RowSpan="2"
+                              Grid.Column="0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <DataGrid x:Name="SubtitlesDataGrid"
+                                      Grid.Row="0"
+                                      SelectionMode="Single"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      SelectionChanged="OnSubtitleSelectionChanged">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Label" Binding="{Binding Label}" Width="*" />
+                                    <DataGridTextColumn Header="Lang" Binding="{Binding Language}" Width="55" />
+                                    <DataGridTextColumn Header="Role" Binding="{Binding Role}" Width="110" />
+                                    <DataGridTextColumn Header="形式" Binding="{Binding Format}" Width="80" />
+                                    <DataGridTextColumn Header="Cue" Binding="{Binding CueCount}" Width="70" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <StackPanel Grid.Row="1"
+                                        Orientation="Horizontal"
+                                        HorizontalAlignment="Right"
+                                        Margin="0,8,0,0">
+                                <Button x:Name="RemoveSubtitleButton"
+                                        Content="選択字幕を削除"
+                                        Click="OnRemoveSubtitleClicked"
+                                        Background="#121A26"
+                                        Foreground="White"
+                                        BorderBrush="#27364A" />
+                            </StackPanel>
+                        </Grid>
 
                         <DataGrid x:Name="ScenesDataGrid"
                                   Grid.Row="2"
@@ -535,19 +594,39 @@
                                 </Style>
                             </DataGrid.RowStyle>
                             <DataGrid.Columns>
+                                <DataGridTextColumn x:Name="SceneMovieColumn" Header="動画" Binding="{Binding SourceMovie}" Width="180" IsReadOnly="True" Visibility="Collapsed" />
+                                <DataGridTextColumn x:Name="SceneTrackColumn" Header="字幕" Binding="{Binding SourceTrack}" Width="120" IsReadOnly="True" Visibility="Collapsed" />
                                 <DataGridCheckBoxColumn Header="flag" Binding="{Binding IsFlagged, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="55" />
                                 <DataGridTextColumn Header="Start" Binding="{Binding Timestamp, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="92" />
                                 <DataGridTextColumn Header="End" Binding="{Binding EndTimestamp, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="92" />
                                 <DataGridTextColumn Header="Text" Binding="{Binding Label}" Width="*" IsReadOnly="True" />
                                 <DataGridTextColumn Header="Listen" Binding="{Binding ListeningAccuracy}" Width="70" IsReadOnly="True" />
                                 <DataGridTextColumn Header="Shadow" Binding="{Binding ShadowingAccuracy}" Width="78" IsReadOnly="True" />
-                                <DataGridTextColumn Header="Tags" Binding="{Binding Tags, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="120" />
+                                <DataGridTextColumn Header="Tags" Binding="{Binding Tags}" Width="130" IsReadOnly="True" />
+                                <DataGridTemplateColumn Header="タグ選択" Width="76">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="選択"
+                                                    Click="OnSelectSceneRowTagsClicked"
+                                                    IsEnabled="{Binding CanEditTags}"
+                                                    MinHeight="26"
+                                                    MinWidth="54"
+                                                    Padding="8,2"
+                                                    Margin="0"
+                                                    FontSize="12"
+                                                    Background="#121A26"
+                                                    Foreground="White"
+                                                    BorderBrush="#27364A" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="AIメモ" Binding="{Binding AiNote}" Width="220" IsReadOnly="True" />
                                 <DataGridTextColumn Header="自分メモ" Binding="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="160" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </Grid>
                 </Grid>
+                        </ScrollViewer>
                     </TabItem>
                     <TabItem x:Name="SubtitleGenerationTabItem" Header="字幕生成">
                         <ScrollViewer VerticalScrollBarVisibility="Auto"

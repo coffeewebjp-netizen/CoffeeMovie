@@ -161,8 +161,19 @@ public partial class MainWindow
 
     private sealed class SceneRow
     {
-        public SceneRow(SubtitleCue cue, SubtitleCueLearningState? learningState, System.Windows.Media.Brush rowBackgroundBrush)
+        public SceneRow(
+            SubtitleCue cue,
+            SubtitleCueLearningState? learningState,
+            System.Windows.Media.Brush rowBackgroundBrush,
+            Movie? sourceMovie = null,
+            SubtitleTrack? sourceTrack = null,
+            bool isGlobalResult = false)
         {
+            MovieId = sourceMovie?.Id ?? string.Empty;
+            TrackId = sourceTrack?.Id ?? string.Empty;
+            SourceMovie = sourceMovie is null ? string.Empty : FormatSceneSourceMovie(sourceMovie);
+            SourceTrack = sourceTrack?.Label ?? string.Empty;
+            IsGlobalResult = isGlobalResult;
             CueId = cue.Id;
             CueIndex = cue.Index;
             Start = cue.Start;
@@ -178,6 +189,18 @@ public partial class MainWindow
             Note = learningState?.Note ?? string.Empty;
             RowBackgroundBrush = rowBackgroundBrush;
         }
+
+        public string MovieId { get; }
+
+        public string TrackId { get; }
+
+        public string SourceMovie { get; }
+
+        public string SourceTrack { get; }
+
+        public bool IsGlobalResult { get; }
+
+        public bool CanEditTags => !IsGlobalResult;
 
         public string CueId { get; }
 
@@ -211,6 +234,14 @@ public partial class MainWindow
         {
             var normalized = string.Join(' ', text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
             return normalized.Length <= 120 ? normalized : normalized[..117] + "...";
+        }
+
+        private static string FormatSceneSourceMovie(Movie movie)
+        {
+            var episode = MovieMetadataInferenceService.FormatSeasonEpisode(movie);
+            return string.IsNullOrWhiteSpace(episode)
+                ? movie.Title
+                : $"{movie.Title} ({episode})";
         }
 
         private static string FormatAccuracy(double? value)

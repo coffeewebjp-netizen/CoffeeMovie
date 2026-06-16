@@ -11,8 +11,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#05070B" />
-    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#05070B" BaseSize="256,256" />
+    <MauiIcon Include="Resources\AppIcon\appicon.png" Color="#05070B" />
+    <MauiImage Include="Resources\Images\startup_icon.png" />
+    <MauiSplashScreen Include="Resources\Splash\splash_composite.png" Color="#05070B" BaseSize="512,512" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -26,7 +27,7 @@
     <ApplicationTitle>CoffeeMovie Reader</ApplicationTitle>
     <ApplicationId>net.coffeewebjp.coffeemovie.reader</ApplicationId>
     <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
-    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationVersion>3</ApplicationVersion>
     <SupportedOSPlatformVersion>23.0</SupportedOSPlatformVersion>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
   </PropertyGroup>

@@ -73,20 +73,45 @@ public partial class MainWindow
 
     private void InstallTagSelectorButtons()
     {
-        MovieTagFilterTextBox.Margin = new Thickness(0, 0, 64, 6);
-        AddGridTagSelectorButton(MovieTagFilterTextBox, OnSelectMovieTagFilterClicked);
+        MovieTagFilterTextBox.Margin = new Thickness(0, 0, 152, 8);
+        AddGridTagSelectorButtons(MovieTagFilterTextBox, OnSelectMovieTagFilterClicked, OnClearMovieTagFilterClicked);
 
-        SubtitleTagFilterTextBox.Margin = new Thickness(0, 0, 64, 0);
-        AddGridTagSelectorButton(SubtitleTagFilterTextBox, OnSelectSubtitleTagFilterClicked);
+        SubtitleTagFilterTextBox.Margin = new Thickness(0, 0, 152, 0);
+        AddGridTagSelectorButtons(SubtitleTagFilterTextBox, OnSelectSubtitleTagFilterClicked, OnClearSubtitleTagFilterClicked);
 
-        MovieTagsTextBox.Margin = new Thickness(8, 4, 64, 0);
+        MovieTagsTextBox.Margin = new Thickness(8, 4, 80, 0);
         AddGridTagSelectorButton(MovieTagsTextBox, OnSelectMovieTagsClicked);
 
         if (SceneTagFilterTextBox.Parent is Panel panel)
         {
-            panel.Children.Add(CreateTagSelectorButton(OnSelectSceneTagFilterClicked, new Thickness(8, 0, 0, 0), "絞込"));
-            panel.Children.Add(CreateTagSelectorButton(OnSelectSelectedSceneTagsClicked, new Thickness(8, 0, 0, 0), "行タグ"));
+            panel.Children.Add(CreateTagSelectorButton(OnSelectSceneTagFilterClicked, new Thickness(8, 0, 0, 0), "選択"));
+            panel.Children.Add(CreateTagSelectorButton(OnClearSceneTagFilterClicked, new Thickness(4, 0, 0, 0), "クリア"));
         }
+    }
+
+    private static void AddGridTagSelectorButtons(
+        System.Windows.Controls.TextBox target,
+        RoutedEventHandler selectHandler,
+        RoutedEventHandler clearHandler)
+    {
+        if (target.Parent is not Grid grid)
+        {
+            return;
+        }
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Margin = new Thickness(0, target.Margin.Top, 0, target.Margin.Bottom)
+        };
+
+        buttons.Children.Add(CreateTagSelectorButton(selectHandler, new Thickness(0, 0, 4, 0), "選択"));
+        buttons.Children.Add(CreateTagSelectorButton(clearHandler, new Thickness(0), "クリア"));
+        Grid.SetRow(buttons, Grid.GetRow(target));
+        Grid.SetColumn(buttons, Grid.GetColumn(target));
+        grid.Children.Add(buttons);
     }
 
     private static void AddGridTagSelectorButton(System.Windows.Controls.TextBox target, RoutedEventHandler clickHandler)
@@ -109,9 +134,10 @@ public partial class MainWindow
         var button = new Button
         {
             Content = text,
-            Width = 56,
-            MinWidth = 56,
+            Width = 72,
+            MinWidth = 72,
             Margin = margin,
+            Padding = new Thickness(8, 7, 8, 7),
             Background = CreateBrush("#121A26"),
             Foreground = System.Windows.Media.Brushes.White,
             BorderBrush = CreateBrush("#27364A")
