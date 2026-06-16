@@ -253,3 +253,24 @@ Reader sync behavior:
 3. If sidecar `contentFingerprint` equals local `SourceContentFingerprint`, count it as unchanged.
 4. If it differs, update the local movie shell and mark it as added/updated.
 5. Keep the existing video cache only when the incoming video metadata describes the same video asset.
+
+## Reader Learning-State Backup
+
+Android Reader can export a lightweight JSON backup with `packageType: "reader-learning-state"`. This file is separate from `.coffeemovie` packages and intentionally excludes video bytes, subtitle cue text, and thumbnail data.
+
+The backup contains:
+
+- movie identity, title, series title, season number, episode number
+- source package URI and content fingerprint for matching after reinstall
+- movie tags
+- playback state
+- subtitle track identity fields
+- cue learning states, including tags, free-form notes, AI notes, listening metrics, and shadowing metrics
+
+Import matching order is:
+
+1. `movieId`
+2. `sourceContentFingerprint`
+3. `sourcePackageUri`
+
+When importing, Reader merges tags and cue states instead of replacing the whole movie. Notes prefer the newer `updatedAt`; practice metrics prefer the higher attempt count. This makes an older backup less likely to erase newer local practice data.

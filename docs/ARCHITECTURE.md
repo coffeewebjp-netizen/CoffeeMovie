@@ -11,6 +11,61 @@ src/
   CoffeeMovie.Verification/  No-package verification console
 ```
 
+## Current Code Structure
+
+CoffeeMovie is now organized so future work can start from the feature area instead of from one large UI file. The WPF and MAUI pages still own UI composition, but long-running work, parsing, sync, and import/export rules live in services.
+
+Shared code:
+
+- `CoffeeMovie.Core/Models`: portable movie, video, subtitle, tag, playback, and cue learning-state models.
+- `CoffeeMovie.Core/Services/MovieMetadataInferenceService.cs`: shared filename-to-series/season/episode inference and season/episode display formatting.
+- `CoffeeMovie.Storage/Services`: JSON library storage, cache storage, subtitle parsing, sidecar/package creation, and content fingerprint calculation.
+
+Studio code:
+
+- `MainWindow.xaml.cs`: WPF shell, shared state, selected movie wiring, and small UI helpers.
+- `MainWindow.Constants.cs`: built-in prompt text, default command templates, overlay defaults, and file-extension constants.
+- `MainWindow.Shelf.cs`: movie shelf grouping, import/remove actions, and shelf refresh.
+- `MainWindow.Selection.cs`: drag/drop, movie selection, metadata editing, and subtitle selection.
+- `MainWindow.Preview.cs`: edit/full preview playback, seek state, subtitle overlay rendering, and overlay placement.
+- `MainWindow.PreviewHandlers.cs`: preview buttons, cue jumping, fullscreen preview actions, and timing-control event handlers.
+- `MainWindow.SceneRows.cs`: subtitle row rendering, row tags/notes persistence, cue timing edits, and paired-track timing sync.
+- `MainWindow.Tags.cs`: tag management, tag picker UI, tag filtering, and highlight color behavior.
+- `MainWindow.SubtitleGeneration.cs`: Studio UI coordination for WhisperX, Japanese translation, and AI memo jobs.
+- `MainWindow.AiNotes.cs`: AI note generation trigger, sparse-note import, focus relocation, and quality validation.
+- `MainWindow.DriveExport.cs`: Drive-folder selection and Reader package export.
+- `MainWindow.Thumbnails.cs`: thumbnail capture button flow.
+- `MainWindow.Types.cs`: WPF row/view helper types used by the partial files.
+- `CoffeeMovie.Studio/Services`: testable services for learning-note import, external process execution, subtitle-generation jobs, tag filtering, and thumbnail capture.
+
+Reader code:
+
+- `MovieShelfPage.cs`: MAUI shelf layout, series/season tree shell, card UI, movie opening, and cache-state display.
+- `MovieShelfPage.Tree.cs`: series -> season -> episode row construction and collapse state.
+- `MovieShelfPage.Sync.cs`: Google Drive sync UI flow, sidecar/package download decisions, and progress text.
+- `MovieShelfPage.Backup.cs`: local/shareable learning-state backup export/import UI.
+- `MoviePlayerPage.cs`: MAUI player layout, learning panel layout, scene list, and page-level state.
+- `MoviePlayerPage.Html.cs`: bridge URL parsing, JavaScript string cleanup, and player HTML dispatch helpers.
+- `MoviePlayerPage.Subtitles.cs`: subtitle/memo switches, active cue binding, cue learning-state editing, and overlay visibility.
+- `MoviePlayerPage.Shadowing.cs`: speech recognition flow, shadowing metrics, feedback, and text-to-speech replay.
+- `MoviePlayerPage.Controls.cs`: fullscreen, transport controls, rewind controls, and subtitle position/alignment controls.
+- `ReaderPlayerHtmlBuilder.cs`: HTML5 video surface, subtitle/memo overlay JavaScript, and WebView bridge script generation.
+- `ReaderShadowingScorer.cs`: tokenization and edit-distance scoring for shadowing.
+- `ReaderLibraryService.cs`: app-local movie library access and manual video/subtitle import.
+- `ReaderLibraryService.Package.cs`: Drive package/sidecar import, package extraction, local state merge, and thumbnail payload handling.
+- `ReaderLibraryService.LearningBackup.cs`: lightweight mobile learning-state backup export/import and merge rules.
+- `GoogleDriveSyncService.cs`: small facade over auth, package listing, and download services for shelf UI callers.
+- `GoogleDriveAuthService.cs`: OAuth configuration, PKCE browser auth, refresh-token storage, access-token refresh, and Drive folder ID parsing.
+- `GoogleDrivePackageListingService.cs`: Drive file listing and package/sidecar pairing.
+- `DrivePackageDownloadService.cs`: package/sidecar download, partial-file resume, retry handling, and cache-state reporting.
+
+Development rule of thumb:
+
+1. Start from the feature partial or service above.
+2. Keep UI-only state in the page partial.
+3. Move parsing, merge, command execution, Drive transfer, or validation behavior into a service when it can be tested without a UI surface.
+4. Preserve package format, Android signing identity, Google OAuth client assumptions, and `.part` resume behavior unless the change is explicitly a migration.
+
 ## Reader Flow
 
 1. User configures Google Drive or imports local video/subtitle files for testing.

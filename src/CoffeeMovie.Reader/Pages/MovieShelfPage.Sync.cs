@@ -261,10 +261,12 @@ public sealed partial class MovieShelfPage
         _syncButton.IsEnabled = !busy;
         _driveSettingsButton.IsEnabled = !busy;
         _importButton.IsEnabled = !busy;
+        _backupButton.IsEnabled = !busy;
         _moviesView.IsEnabled = !busy;
         _syncButton.Opacity = busy ? 0.55 : 1;
         _driveSettingsButton.Opacity = busy ? 0.55 : 1;
         _importButton.Opacity = busy ? 0.55 : 1;
+        _backupButton.Opacity = busy ? 0.55 : 1;
         _moviesView.Opacity = busy ? 0.65 : 1;
         if (!string.IsNullOrWhiteSpace(message))
         {

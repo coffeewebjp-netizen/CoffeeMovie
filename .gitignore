@@ -6,6 +6,7 @@ obj/
 .nuget/
 .tools/
 dist/
+artifacts/
 .verify-build/
 *.user
 *.suo

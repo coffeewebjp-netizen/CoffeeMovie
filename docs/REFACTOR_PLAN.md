@@ -112,10 +112,18 @@ Notes:
 
 Goal: reduce risk from reinstall/device loss.
 
-1. Define mobile learning-state sidecar format.
-2. Export/import mobile-only notes, tags, playback state, and shadowing metrics.
-3. Add Drive backup/restore flow for mobile learning state.
-4. Document recovery steps.
+Status: started on 2026-06-16. Reader now has a local JSON learning-state backup format and shelf UI entrypoint.
+
+1. Done: Define mobile learning-state backup format in `LearningStateBackup`.
+2. Done: Export/import mobile-only notes, tags, playback state, and shadowing metrics through Reader.
+3. Pending: Add Drive upload/download flow for mobile learning-state backups.
+4. Done: Document local backup recovery steps after reinstall or device migration in `docs/ANDROID_SIGNING.md`.
+
+Notes:
+
+- The backup intentionally excludes video bytes and subtitle cue text. It stores only movie identity, movie tags, playback state, subtitle track identity, cue learning states, free-form notes, AI notes, and listening/shadowing metrics.
+- Import matches movies by movie ID first, then content fingerprint, then Drive package URI. This keeps reinstall recovery aligned with PC-exported Drive packages.
+- The first implementation exports a shareable JSON file from Android. Drive-native automatic backup should build on the same JSON format.
 
 ## Non-Goals For Initial Refactor
 

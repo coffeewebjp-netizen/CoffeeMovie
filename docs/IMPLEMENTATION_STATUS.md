@@ -58,6 +58,8 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Shows recognized speech text and OK/NG accuracy feedback.
 - Stores shadowing OK/NG counts, last transcript, and accuracy in cue learning state.
 - Uses device text-to-speech to replay the original English subtitle after a failed shadowing attempt.
+- Can export and import a lightweight learning-state backup JSON from the shelf `Backup` button.
+- The learning-state backup stores movie tags, playback state, subtitle cue tags, notes, AI notes, listening metrics, and shadowing metrics without duplicating video bytes.
 
 ## Sync Contract
 
@@ -96,3 +98,4 @@ File size is used for download progress and cache integrity checks. It is not th
 - Shadowing input audio playback is not implemented because Android `SpeechRecognizer` returns recognition text but not a reusable audio file.
 - Drive sync still downloads sidecars on each sync. This is intentional because sidecars are small and are the authoritative comparison surface.
 - If Google Drive contains duplicate package names, the current list logic may pick the first matching sidecar. The intended workflow is overwrite-in-place from the desktop Drive folder.
+- Learning-state backup is currently a shareable/importable JSON file. Drive-native automatic upload and restore is the next data-safety step.

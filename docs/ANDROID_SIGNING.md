@@ -101,4 +101,23 @@ If installation fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, stop and inspec
 
 ## Data Safety Note
 
-Drive packages can restore shared movie/subtitle metadata and video bytes, but the Android app-local store also contains device-side state. Until mobile learning-state backup is implemented, uninstalling the app can lose local-only data.
+Drive packages can restore shared movie/subtitle metadata and video bytes, but the Android app-local store also contains device-side state. Before uninstalling or migrating devices, use the Reader shelf `Backup` action to export a learning-state JSON that contains mobile tags, notes, playback state, and shadowing metrics. Drive-native automatic backup/restore is still a future step.
+
+## Recovery Workflow
+
+Before uninstalling, changing devices, or replacing a development PC signing setup:
+
+1. Open CoffeeMovie Reader.
+2. Tap `Backup`.
+3. Choose `Export`.
+4. Save or share the generated learning-state JSON somewhere outside the app.
+
+After reinstalling or moving to a new device:
+
+1. Install a Release APK signed with the canonical CoffeeMovie Reader keystore.
+2. Configure Google Drive in Reader if needed.
+3. Run Drive sync to restore the movie shells, subtitle metadata, thumbnails, and package references.
+4. Download video packages when you need local playback.
+5. Tap `Backup`, choose `Import`, and select the exported learning-state JSON.
+
+The import matches movies by movie ID first, then `contentFingerprint`, then Drive package URI. It merges tags and cue states instead of replacing the full movie, so an older backup is less likely to erase newer local practice data.
