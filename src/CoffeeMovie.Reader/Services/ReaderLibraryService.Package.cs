@@ -73,6 +73,14 @@ public sealed partial class ReaderLibraryService
         return movie;
     }
 
+    public async Task<bool> HasCurrentDriveSidecarAsync(
+        SyncMovieCandidate package,
+        CancellationToken cancellationToken = default)
+    {
+        var existing = await FindMovieByDrivePackageAsync(package, cancellationToken);
+        return existing is not null && HasCurrentSidecarMetadata(existing, package);
+    }
+
     private static void ApplyPackageSourceMetadata(
         Movie movie,
         CoffeeMovieSidecar sidecar,
@@ -82,8 +90,97 @@ public sealed partial class ReaderLibraryService
         movie.SourcePackageName = package.FileName;
         movie.SourcePackageLastModified = package.LastModified;
         movie.SourcePackageSize = package.Size;
+        movie.SourceSidecarUri = package.SidecarContentUri;
+        movie.SourceSidecarName = package.SidecarFileName;
+        movie.SourceSidecarLastModified = package.SidecarLastModified;
+        movie.SourceSidecarSize = package.SidecarSize;
         movie.SourceMovieUpdatedAt = sidecar.Movie.UpdatedAt;
         movie.SourceContentFingerprint = sidecar.ContentFingerprint;
+    }
+
+    private async Task<Movie?> FindMovieByDrivePackageAsync(
+        SyncMovieCandidate package,
+        CancellationToken cancellationToken)
+    {
+        var library = await _libraryStore.LoadAsync(cancellationToken);
+        return library.Movies.FirstOrDefault(movie =>
+                !string.IsNullOrWhiteSpace(package.ContentUri)
+                && string.Equals(movie.SourcePackageUri, package.ContentUri, StringComparison.Ordinal))
+            ?? library.Movies.FirstOrDefault(movie =>
+                !string.IsNullOrWhiteSpace(package.SidecarContentUri)
+                && string.Equals(movie.SourceSidecarUri, package.SidecarContentUri, StringComparison.Ordinal));
+    }
+
+    private static bool HasCurrentSidecarMetadata(Movie movie, SyncMovieCandidate package)
+    {
+        if (!package.HasSidecar)
+        {
+            return false;
+        }
+
+        var hasStoredSidecarMetadata = movie.SourceSidecarLastModified is not null
+            || movie.SourceSidecarSize is not null
+            || !string.IsNullOrWhiteSpace(movie.SourceSidecarUri);
+        var hasComparableMetadata = false;
+        if (package.SidecarLastModified is not null)
+        {
+            hasComparableMetadata = true;
+            if (movie.SourceSidecarLastModified != package.SidecarLastModified)
+            {
+                return !hasStoredSidecarMetadata && HasCurrentPackageMetadata(movie, package);
+            }
+        }
+
+        if (package.SidecarSize is not null)
+        {
+            hasComparableMetadata = true;
+            if (movie.SourceSidecarSize != package.SidecarSize)
+            {
+                return !hasStoredSidecarMetadata && HasCurrentPackageMetadata(movie, package);
+            }
+        }
+
+        if (!hasComparableMetadata)
+        {
+            return HasCurrentPackageMetadata(movie, package);
+        }
+
+        if (!string.IsNullOrWhiteSpace(movie.SourceSidecarUri)
+            && !string.Equals(movie.SourceSidecarUri, package.SidecarContentUri, StringComparison.Ordinal))
+        {
+            return !hasStoredSidecarMetadata && HasCurrentPackageMetadata(movie, package);
+        }
+
+        return !string.IsNullOrWhiteSpace(movie.SourceContentFingerprint);
+    }
+
+    private static bool HasCurrentPackageMetadata(Movie movie, SyncMovieCandidate package)
+    {
+        if (string.IsNullOrWhiteSpace(movie.SourceContentFingerprint))
+        {
+            return false;
+        }
+
+        var hasComparableMetadata = false;
+        if (package.LastModified is not null)
+        {
+            hasComparableMetadata = true;
+            if (movie.SourcePackageLastModified != package.LastModified)
+            {
+                return false;
+            }
+        }
+
+        if (package.Size is not null)
+        {
+            hasComparableMetadata = true;
+            if (movie.SourcePackageSize != package.Size)
+            {
+                return false;
+            }
+        }
+
+        return hasComparableMetadata;
     }
 
     private async Task ExtractPackageFilesAsync(
@@ -204,6 +301,10 @@ public sealed partial class ReaderLibraryService
             SourcePackageName = package.FileName,
             SourcePackageLastModified = package.LastModified,
             SourcePackageSize = package.Size,
+            SourceSidecarUri = package.SidecarContentUri,
+            SourceSidecarName = package.SidecarFileName,
+            SourceSidecarLastModified = package.SidecarLastModified,
+            SourceSidecarSize = package.SidecarSize,
             SourceMovieUpdatedAt = sidecar.Movie.UpdatedAt,
             SourceContentFingerprint = sidecar.ContentFingerprint,
             CreatedAt = sidecar.Movie.CreatedAt == default ? DateTimeOffset.UtcNow : sidecar.Movie.CreatedAt,

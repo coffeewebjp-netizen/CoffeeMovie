@@ -32,6 +32,8 @@ public sealed class StudioPreferences
 
     public string WhisperComputeType { get; set; } = "float16";
 
+    public string EnglishSubtitleGenerationMode { get; set; } = "normal";
+
     public string? TranslationCommand { get; set; } = "codex-spark";
 
     public string? TranslationModel { get; set; } = "gpt-5.3-codex-spark";

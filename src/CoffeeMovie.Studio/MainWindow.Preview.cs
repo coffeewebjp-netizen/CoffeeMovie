@@ -617,6 +617,7 @@ public partial class MainWindow
         _isFullPreviewMediaOpened = false;
         FullPreviewPlayer.Source = null;
         ResetFullPreviewSeek();
+        _previewPopupWindow?.Clear();
         UpdatePlaybackButtonContent();
         if (!string.IsNullOrWhiteSpace(nextPath) && File.Exists(nextPath))
         {
@@ -774,6 +775,7 @@ public partial class MainWindow
             PreviewSeekSlider.Value = seconds;
             PreviewPositionTextBlock.Text = FormatPlaybackPosition(displayPosition, _previewDuration);
             UpdatePreviewSubtitle(displayPosition);
+            SyncPreviewPopupFromActiveSurface(displayPosition);
         }
         finally
         {
@@ -873,6 +875,7 @@ public partial class MainWindow
             FullPreviewSeekSlider.Value = seconds;
             FullPreviewPositionTextBlock.Text = FormatPlaybackPosition(displayPosition, _fullPreviewDuration);
             UpdateFullPreviewSubtitle(displayPosition);
+            SyncPreviewPopupFromActiveSurface(displayPosition);
         }
         finally
         {
@@ -905,5 +908,115 @@ public partial class MainWindow
         }
 
         return position > _fullPreviewDuration ? _fullPreviewDuration : position;
+    }
+
+    private void SyncFullPreviewFromEdit(bool transferPlayback)
+    {
+        if (_selectedMovie is null)
+        {
+            return;
+        }
+
+        var position = GetPreviewTimelinePosition();
+        var shouldPlay = transferPlayback && _isPreviewPlaying;
+        if (_isPreviewPlaying)
+        {
+            PreviewPlayer.Pause();
+            _isPreviewPlaying = false;
+        }
+
+        if (shouldPlay)
+        {
+            StartFullPreview(position);
+        }
+        else if (EnsureFullPreviewSource(_selectedMovie, playWhenReady: false, position))
+        {
+            SeekFullPreviewTo(position);
+        }
+
+        UpdateFullPreviewSubtitle(position);
+        UpdatePlaybackButtonContent();
+    }
+
+    private void SyncEditPreviewFromFull(bool transferPlayback)
+    {
+        if (_selectedMovie is null)
+        {
+            return;
+        }
+
+        var position = GetFullPreviewTimelinePosition();
+        var shouldPlay = transferPlayback && _isFullPreviewPlaying;
+        if (_isFullPreviewPlaying)
+        {
+            FullPreviewPlayer.Pause();
+            _isFullPreviewPlaying = false;
+        }
+
+        if (shouldPlay)
+        {
+            StartPreview(position);
+        }
+        else if (EnsurePreviewSource(_selectedMovie, playWhenReady: false, position))
+        {
+            SeekPreviewTo(position);
+        }
+
+        UpdatePreviewSubtitle(position);
+        UpdatePlaybackButtonContent();
+    }
+
+    private TimeSpan GetPreviewTimelinePosition()
+    {
+        if (PreviewPlayer.Source is not null)
+        {
+            return ClampTimelinePosition(PreviewPlayer.Position, _previewDuration);
+        }
+
+        return TimeSpan.FromSeconds(Math.Clamp(PreviewSeekSlider.Value, 0.0, PreviewSeekSlider.Maximum));
+    }
+
+    private TimeSpan GetFullPreviewTimelinePosition()
+    {
+        if (FullPreviewPlayer.Source is not null)
+        {
+            return ClampTimelinePosition(FullPreviewPlayer.Position, _fullPreviewDuration);
+        }
+
+        return TimeSpan.FromSeconds(Math.Clamp(FullPreviewSeekSlider.Value, 0.0, FullPreviewSeekSlider.Maximum));
+    }
+
+    private static TimeSpan ClampTimelinePosition(TimeSpan position, TimeSpan duration)
+    {
+        if (position < TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        return duration > TimeSpan.Zero && position > duration ? duration : position;
+    }
+
+    private void SyncPreviewPopupFromActiveSurface(TimeSpan? positionOverride = null, bool forceSeek = false)
+    {
+        if (_previewPopupWindow is null)
+        {
+            return;
+        }
+
+        if (_selectedMovie?.Video.CachePath is null || !File.Exists(_selectedMovie.Video.CachePath))
+        {
+            _previewPopupWindow.Clear();
+            return;
+        }
+
+        var useFullPreview = FullPreviewTabItem.IsSelected;
+        var position = positionOverride ?? (useFullPreview ? GetFullPreviewTimelinePosition() : GetPreviewTimelinePosition());
+        var shouldPlay = useFullPreview ? _isFullPreviewPlaying : _isPreviewPlaying;
+        _previewPopupWindow.Sync(_selectedMovie.Video.CachePath, position, shouldPlay, forceSeek);
+        RenderOverlayPanels(
+            _previewPopupWindow.AboveOverlayPanel,
+            _previewPopupWindow.BelowOverlayPanel,
+            CreateOverlayItems(position, CreatePreviewSubtitleLines(position)),
+            isFullPreview: true);
     }
 }

@@ -27,6 +27,23 @@ var reparsed = SubtitleParser.Parse(webVtt, "sample.vtt");
 Assert(reparsed.Format == SubtitleFormat.WebVtt, "WebVTT format should be detected.");
 Assert(reparsed.Cues.Count == 2, "Converted WebVTT cue count should remain 2.");
 
+var consensus = SubtitleConsensusService.Merge(
+[
+    [
+        new SubtitleCue { Index = 1, Start = TimeSpan.FromSeconds(1), End = TimeSpan.FromSeconds(2), Text = "hello there" },
+        new SubtitleCue { Index = 2, Start = TimeSpan.FromSeconds(4), End = TimeSpan.FromSeconds(5), Text = "missing line" }
+    ],
+    [
+        new SubtitleCue { Index = 1, Start = TimeSpan.FromSeconds(1.2), End = TimeSpan.FromSeconds(2.2), Text = "hello there" }
+    ],
+    [
+        new SubtitleCue { Index = 1, Start = TimeSpan.FromSeconds(3), End = TimeSpan.FromSeconds(4), Text = "hello there" },
+        new SubtitleCue { Index = 2, Start = TimeSpan.FromSeconds(8), End = TimeSpan.FromSeconds(9), Text = "extra line" }
+    ]
+]);
+Assert(consensus.Count == 3, "Consensus merge should keep missing cues from any run.");
+Assert(Math.Abs((consensus[0].Start - TimeSpan.FromSeconds(1.2)).TotalMilliseconds) < 1, "Consensus merge should use median timing.");
+
 var englishMetadata = SubtitleFileMetadataService.Infer("sample.en.srt");
 Assert(englishMetadata.Language == "en", "English subtitle language should be inferred from .en suffix.");
 Assert(englishMetadata.Role == SubtitleTrackRole.LearningTarget, "English subtitles should default to learning target role.");

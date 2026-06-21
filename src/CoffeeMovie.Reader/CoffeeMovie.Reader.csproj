@@ -26,8 +26,8 @@
     <Nullable>enable</Nullable>
     <ApplicationTitle>CoffeeMovie Reader</ApplicationTitle>
     <ApplicationId>net.coffeewebjp.coffeemovie.reader</ApplicationId>
-    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
-    <ApplicationVersion>3</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.1</ApplicationDisplayVersion>
+    <ApplicationVersion>4</ApplicationVersion>
     <SupportedOSPlatformVersion>23.0</SupportedOSPlatformVersion>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
   </PropertyGroup>

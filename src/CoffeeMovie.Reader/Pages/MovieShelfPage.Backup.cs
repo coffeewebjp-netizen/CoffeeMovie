@@ -4,6 +4,24 @@ namespace CoffeeMovie.Reader.Pages;
 
 public sealed partial class MovieShelfPage
 {
+    private async Task ManageOtherActionsAsync()
+    {
+        if (_isSyncing)
+        {
+            return;
+        }
+
+        var choice = await DisplayActionSheetAsync(
+            "その他",
+            "キャンセル",
+            null,
+            "Backup");
+        if (choice == "Backup")
+        {
+            await ManageLearningBackupAsync();
+        }
+    }
+
     private async Task ManageLearningBackupAsync()
     {
         if (_isSyncing)
@@ -89,12 +107,12 @@ public sealed partial class MovieShelfPage
 
     private void SetBackupBusy(bool busy, string? message = null)
     {
-        _backupButton.IsEnabled = !busy;
+        _moreButton.IsEnabled = !busy;
         _syncButton.IsEnabled = !busy;
         _driveSettingsButton.IsEnabled = !busy;
         _importButton.IsEnabled = !busy;
         _moviesView.IsEnabled = !busy;
-        _backupButton.Opacity = busy ? 0.55 : 1;
+        _moreButton.Opacity = busy ? 0.55 : 1;
         _syncButton.Opacity = busy ? 0.55 : 1;
         _driveSettingsButton.Opacity = busy ? 0.55 : 1;
         _importButton.Opacity = busy ? 0.55 : 1;

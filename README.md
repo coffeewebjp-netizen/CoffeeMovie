@@ -64,6 +64,23 @@ dotnet build src\CoffeeMovie.Verification\CoffeeMovie.Verification.csproj --no-r
 dotnet run --project src\CoffeeMovie.Verification\CoffeeMovie.Verification.csproj --no-build
 ```
 
+## Windows Studio Release
+
+CoffeeMovie Studio can be packaged as a per-user MSI installer with the Windows icon generated from `icon.png`.
+
+```powershell
+cd C:\work\CoffeeMovie
+.\scripts\windows\New-CoffeeMovieStudioMsi.ps1
+```
+
+The MSI output is written to:
+
+```text
+dist\CoffeeMovie.Studio-win-msi-<timestamp>.msi
+```
+
+The build can reuse the sibling CoffeeBook WiX 5 toolchain when present. Full release steps are documented in [docs/WINDOWS_RELEASE.md](docs/WINDOWS_RELEASE.md).
+
 ## Android Reader Build
 
 ```powershell

@@ -98,6 +98,12 @@ public sealed partial class MovieShelfPage
                 try
                 {
                     _summaryLabel.Text = $"同期中 ({index + 1}/{packages.Count}): {package.DisplayName}";
+                    if (await _libraryService.HasCurrentDriveSidecarAsync(package))
+                    {
+                        unchanged++;
+                        continue;
+                    }
+
                     tempPath = await _googleDriveSyncService.DownloadSidecarToCacheAsync(
                         package,
                         CreateTransferProgress("メタ取得中"));
@@ -241,7 +247,11 @@ public sealed partial class MovieShelfPage
                 ? $"{movie.Title}.coffeemovie"
                 : movie.SourcePackageName,
             LastModified = movie.SourcePackageLastModified,
-            Size = movie.SourcePackageSize
+            Size = movie.SourcePackageSize,
+            SidecarContentUri = movie.SourceSidecarUri,
+            SidecarFileName = movie.SourceSidecarName,
+            SidecarLastModified = movie.SourceSidecarLastModified,
+            SidecarSize = movie.SourceSidecarSize
         };
     }
 
@@ -261,12 +271,12 @@ public sealed partial class MovieShelfPage
         _syncButton.IsEnabled = !busy;
         _driveSettingsButton.IsEnabled = !busy;
         _importButton.IsEnabled = !busy;
-        _backupButton.IsEnabled = !busy;
+        _moreButton.IsEnabled = !busy;
         _moviesView.IsEnabled = !busy;
         _syncButton.Opacity = busy ? 0.55 : 1;
         _driveSettingsButton.Opacity = busy ? 0.55 : 1;
         _importButton.Opacity = busy ? 0.55 : 1;
-        _backupButton.Opacity = busy ? 0.55 : 1;
+        _moreButton.Opacity = busy ? 0.55 : 1;
         _moviesView.Opacity = busy ? 0.65 : 1;
         if (!string.IsNullOrWhiteSpace(message))
         {

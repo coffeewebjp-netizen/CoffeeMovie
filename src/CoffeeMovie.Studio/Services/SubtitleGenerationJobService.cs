@@ -11,6 +11,11 @@ public sealed class SubtitleGenerationJobService
         EnglishSubtitleGenerationOptions options,
         Action<string> log)
     {
+        if (options.Mode == EnglishSubtitleGenerationMode.Review)
+        {
+            return await GenerateReviewedEnglishSubtitleAsync(options, log);
+        }
+
         Directory.CreateDirectory(options.OutputDirectory);
 
         var baseName = Path.GetFileNameWithoutExtension(options.VideoPath);
@@ -28,6 +33,84 @@ public sealed class SubtitleGenerationJobService
             SubtitleGenerationProcessService.BackupExistingFile(englishSrtPath);
             SubtitleGenerationProcessService.BackupExistingFile(generatedSrtPath);
         }
+
+        var outputPath = await RunWhisperXToDirectoryAsync(options, options.OutputDirectory, "WhisperX", log);
+        if (!string.Equals(outputPath, englishSrtPath, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Move(outputPath, englishSrtPath, overwrite: true);
+            log($"Renamed generated SRT: {englishSrtPath}");
+        }
+
+        return englishSrtPath;
+    }
+
+    private async Task<string> GenerateReviewedEnglishSubtitleAsync(
+        EnglishSubtitleGenerationOptions options,
+        Action<string> log)
+    {
+        Directory.CreateDirectory(options.OutputDirectory);
+
+        var baseName = Path.GetFileNameWithoutExtension(options.VideoPath);
+        var generatedSrtPath = Path.Combine(options.OutputDirectory, baseName + ".srt");
+        var englishSrtPath = Path.Combine(options.OutputDirectory, baseName + ".en.srt");
+
+        if (File.Exists(englishSrtPath) && !options.Overwrite)
+        {
+            log($"Existing English subtitle found: {englishSrtPath}");
+            return englishSrtPath;
+        }
+
+        if (options.Overwrite)
+        {
+            SubtitleGenerationProcessService.BackupExistingFile(englishSrtPath);
+            SubtitleGenerationProcessService.BackupExistingFile(generatedSrtPath);
+        }
+
+        var reviewRoot = Path.Combine(
+            options.OutputDirectory,
+            $"{baseName}.review-{DateTime.Now:yyyyMMdd-HHmmss}");
+        var cueRuns = new List<IReadOnlyList<CoffeeMovie.Core.Models.SubtitleCue>>();
+        for (var run = 1; run <= 3; run++)
+        {
+            var runDirectory = Path.Combine(reviewRoot, $"run{run}");
+            log($"Review mode: WhisperX run {run}/3.");
+            var runOutputPath = await RunWhisperXToDirectoryAsync(options, runDirectory, $"WhisperX review {run}", log);
+            var auditPath = Path.Combine(options.OutputDirectory, $"{baseName}.review{run}.srt");
+            File.Copy(runOutputPath, auditPath, overwrite: true);
+            var content = await File.ReadAllTextAsync(runOutputPath, Encoding.UTF8);
+            var document = SubtitleParser.Parse(content, runOutputPath);
+            if (document.Cues.Count == 0)
+            {
+                throw new InvalidOperationException($"Review mode run {run} produced no subtitle cues.");
+            }
+
+            cueRuns.Add(document.Cues);
+            log($"Review mode run {run}: {document.Cues.Count} cues.");
+        }
+
+        var mergedCues = SubtitleConsensusService.Merge(cueRuns);
+        if (mergedCues.Count == 0)
+        {
+            throw new InvalidOperationException("Review mode completed but no merged cues were produced.");
+        }
+
+        await File.WriteAllTextAsync(englishSrtPath, SubtitleParser.ToSrt(mergedCues), Encoding.UTF8);
+        log($"Review mode merged {string.Join(" / ", cueRuns.Select(cues => cues.Count.ToString()))} cues into {mergedCues.Count} cues.");
+        log($"Review mode final English SRT: {englishSrtPath}");
+        return englishSrtPath;
+    }
+
+    private static async Task<string> RunWhisperXToDirectoryAsync(
+        EnglishSubtitleGenerationOptions options,
+        string outputDirectory,
+        string processLabel,
+        Action<string> log)
+    {
+        Directory.CreateDirectory(outputDirectory);
+
+        var baseName = Path.GetFileNameWithoutExtension(options.VideoPath);
+        var generatedSrtPath = Path.Combine(outputDirectory, baseName + ".srt");
+        var englishSrtPath = Path.Combine(outputDirectory, baseName + ".en.srt");
 
         var startInfo = new ProcessStartInfo
         {
@@ -53,7 +136,7 @@ public sealed class SubtitleGenerationJobService
         startInfo.ArgumentList.Add("--output_format");
         startInfo.ArgumentList.Add("srt");
         startInfo.ArgumentList.Add("--output_dir");
-        startInfo.ArgumentList.Add(options.OutputDirectory);
+        startInfo.ArgumentList.Add(outputDirectory);
         startInfo.ArgumentList.Add("--device");
         startInfo.ArgumentList.Add(options.Device);
         startInfo.ArgumentList.Add("--compute_type");
@@ -63,7 +146,7 @@ public sealed class SubtitleGenerationJobService
         log("Command:");
         log(SubtitleGenerationProcessService.FormatProcessCommand(startInfo));
         log("RUNNING: waiting for WhisperX process to finish...");
-        await RunExternalProcessAsync(startInfo, "WhisperX", log);
+        await RunExternalProcessAsync(startInfo, processLabel, log);
 
         if (File.Exists(englishSrtPath))
         {
@@ -72,9 +155,7 @@ public sealed class SubtitleGenerationJobService
 
         if (File.Exists(generatedSrtPath))
         {
-            File.Move(generatedSrtPath, englishSrtPath, overwrite: true);
-            log($"Renamed generated SRT: {englishSrtPath}");
-            return englishSrtPath;
+            return generatedSrtPath;
         }
 
         throw new FileNotFoundException("WhisperX completed but no SRT file was found.", generatedSrtPath);
@@ -270,7 +351,14 @@ public sealed record EnglishSubtitleGenerationOptions(
     string Model,
     string Language,
     string Device,
-    string ComputeType);
+    string ComputeType,
+    EnglishSubtitleGenerationMode Mode);
+
+public enum EnglishSubtitleGenerationMode
+{
+    Normal,
+    Review
+}
 
 public sealed record JapaneseSubtitleGenerationOptions(
     string MovieTitle,

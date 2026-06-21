@@ -15,6 +15,7 @@ public partial class MainWindow
         UpdateLearningNotesButton();
         UpdatePreviewSubtitleAtCurrentPosition();
         UpdateFullPreviewSubtitle(FullPreviewPlayer.Position);
+        SyncPreviewPopupFromActiveSurface(forceSeek: true);
         await SaveStudioPreferencesAsync();
     }
 
@@ -28,6 +29,7 @@ public partial class MainWindow
         ReadOverlayPositionComboBoxes();
         UpdatePreviewSubtitleAtCurrentPosition();
         UpdateFullPreviewSubtitle(FullPreviewPlayer.Position);
+        SyncPreviewPopupFromActiveSurface(forceSeek: true);
         await SaveStudioPreferencesAsync();
     }
 
@@ -46,6 +48,7 @@ public partial class MainWindow
 
         UpdatePreviewSubtitleAtCurrentPosition();
         UpdateFullPreviewSubtitle(FullPreviewPlayer.Position);
+        SyncPreviewPopupFromActiveSurface(forceSeek: true);
         await SaveStudioPreferencesAsync();
         SetStatus("表示位置を既定に戻しました。");
     }
@@ -56,6 +59,7 @@ public partial class MainWindow
         UpdateDualSubtitleButton();
         UpdatePreviewSubtitleAtCurrentPosition();
         UpdateFullPreviewSubtitle(FullPreviewPlayer.Position);
+        SyncPreviewPopupFromActiveSurface(forceSeek: true);
         await SaveStudioPreferencesAsync();
     }
 
@@ -69,6 +73,7 @@ public partial class MainWindow
         _subtitleTagHighlightColor = color;
         RenderSceneRows(_previewSubtitleTrack);
         UpdatePreviewSubtitleAtCurrentPosition();
+        SyncPreviewPopupFromActiveSurface(forceSeek: true);
         await SaveStudioPreferencesAsync();
     }
 
@@ -96,6 +101,25 @@ public partial class MainWindow
         SetStatus("プレビューを停止しました。");
     }
 
+    private void OnOpenPreviewPopupClicked(object sender, RoutedEventArgs e)
+    {
+        if (_previewPopupWindow is not null)
+        {
+            _previewPopupWindow.Activate();
+            SyncPreviewPopupFromActiveSurface(forceSeek: true);
+            return;
+        }
+
+        _previewPopupWindow = new FullPreviewPopupWindow
+        {
+            Owner = this
+        };
+        _previewPopupWindow.Closed += (_, _) => _previewPopupWindow = null;
+        _previewPopupWindow.Show();
+        SyncPreviewPopupFromActiveSurface(forceSeek: true);
+        SetStatus("別窓プレビューを開きました。");
+    }
+
     private void OnWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (e.Key != Key.Space || e.Handled || IsInteractiveInputFocused(e.OriginalSource as DependencyObject))
@@ -113,6 +137,25 @@ public partial class MainWindow
         }
 
         e.Handled = true;
+    }
+
+    private void OnMainTabSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!ReferenceEquals(e.Source, MainTabControl) || _selectedMovie is null)
+        {
+            return;
+        }
+
+        if (FullPreviewTabItem.IsSelected)
+        {
+            SyncFullPreviewFromEdit(transferPlayback: true);
+        }
+        else if (EditTabItem.IsSelected)
+        {
+            SyncEditPreviewFromFull(transferPlayback: true);
+        }
+
+        SyncPreviewPopupFromActiveSurface(forceSeek: true);
     }
 
     private void OnPreviewSubtitleClicked(object sender, MouseButtonEventArgs e)
@@ -356,7 +399,7 @@ public partial class MainWindow
 
     private void OnFullPreviewPlayClicked(object sender, RoutedEventArgs e)
     {
-        StartFullPreview();
+        StartFullPreview(FullPreviewPlayer.Source is null ? GetPreviewTimelinePosition() : FullPreviewPlayer.Position);
     }
 
     private void OnPauseFullPreviewClicked(object sender, RoutedEventArgs e)

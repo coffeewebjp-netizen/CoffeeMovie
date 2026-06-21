@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 using CoffeeMovie.Core.Models;
 using CoffeeMovie.Storage.Models;
@@ -221,6 +222,50 @@ public sealed class CoffeeMoviePackageService
         return manifest;
     }
 
+    public async Task<Movie> ImportReaderPackageAsync(
+        string packagePath,
+        CoffeeMoviePaths paths,
+        Movie? existing = null,
+        string? sourcePackageUri = null,
+        string? sourcePackageName = null,
+        long? sourcePackageLastModified = null,
+        long? sourcePackageSize = null,
+        int maxSceneMarkers = 300,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+
+        var manifest = await ReadReaderPackageManifestAsync(packagePath, cancellationToken);
+        var packageInfo = new FileInfo(packagePath);
+        var packageUri = string.IsNullOrWhiteSpace(sourcePackageUri) ? packagePath : sourcePackageUri;
+        var packageName = string.IsNullOrWhiteSpace(sourcePackageName) ? Path.GetFileName(packagePath) : sourcePackageName;
+        var packageLastModified = sourcePackageLastModified
+            ?? new DateTimeOffset(packageInfo.LastWriteTimeUtc).ToUnixTimeMilliseconds();
+        var packageSize = sourcePackageSize ?? packageInfo.Length;
+
+        var movie = CreateMovieFromSidecar(
+            manifest,
+            existing,
+            packageUri,
+            packageName,
+            packageLastModified,
+            packageSize);
+
+        await ExtractPackageFilesAsync(packagePath, paths, manifest, movie, cancellationToken);
+        await ApplySidecarThumbnailAsync(paths, movie, manifest, cancellationToken);
+        movie.Video.SourceKind = VideoSourceKind.GoogleDrive;
+        movie.Video.SourceUri = packageUri;
+        movie.Video.SourceKey = packageUri;
+        movie.SourcePackageUri = packageUri;
+        movie.SourcePackageName = packageName;
+        movie.SourcePackageLastModified = packageLastModified;
+        movie.SourcePackageSize = packageSize;
+        movie.SourceMovieUpdatedAt = manifest.Movie.UpdatedAt;
+        movie.SourceContentFingerprint = manifest.ContentFingerprint;
+        RefreshMovieSceneMarkers(movie, maxSceneMarkers);
+        return movie;
+    }
+
     public static string GetReaderPackageSidecarPath(string packagePath)
     {
         return packagePath + ".json";
@@ -370,6 +415,408 @@ public sealed class CoffeeMoviePackageService
         progress.Report(new CoffeeMoviePackageExportProgress(stage, Math.Clamp(bytesWritten, 0, safeTotal), safeTotal));
     }
 
+    private static async Task ExtractPackageFilesAsync(
+        string packagePath,
+        CoffeeMoviePaths paths,
+        CoffeeMovieSidecar manifest,
+        Movie movie,
+        CancellationToken cancellationToken)
+    {
+        await using var packageStream = File.OpenRead(packagePath);
+        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
+
+        if (string.IsNullOrWhiteSpace(manifest.Video.PackagePath))
+        {
+            throw new InvalidOperationException("CoffeeMovieパッケージ内の動画パスがありません。");
+        }
+
+        var videoEntry = archive.GetEntry(manifest.Video.PackagePath)
+            ?? throw new InvalidOperationException($"CoffeeMovieパッケージ内の動画が見つかりません: {manifest.Video.PackagePath}");
+        var videoDirectory = paths.GetMovieVideoDirectory(movie.Id);
+        Directory.CreateDirectory(videoDirectory);
+        var videoFileName = CreateSafeFileName(string.IsNullOrWhiteSpace(movie.Video.FileName)
+            ? videoEntry.Name
+            : movie.Video.FileName);
+        var videoPath = Path.Combine(videoDirectory, videoFileName);
+        await ExtractEntryAsync(videoEntry, videoPath, cancellationToken);
+        movie.Video.FileName = videoFileName;
+        movie.Video.CachePath = videoPath;
+        movie.Video.SizeBytes = new FileInfo(videoPath).Length;
+        movie.Video.ContentType = string.IsNullOrWhiteSpace(movie.Video.ContentType)
+            ? GuessVideoContentType(videoFileName)
+            : movie.Video.ContentType;
+
+        if (!string.IsNullOrWhiteSpace(manifest.Video.ThumbnailPackagePath)
+            && archive.GetEntry(manifest.Video.ThumbnailPackagePath) is { } thumbnailEntry)
+        {
+            var thumbnailPath = GetThumbnailCachePath(paths, movie.Id, thumbnailEntry.Name);
+            await ExtractEntryAsync(thumbnailEntry, thumbnailPath, cancellationToken);
+            movie.Video.ThumbnailPath = thumbnailPath;
+        }
+
+        var subtitleDirectory = paths.GetMovieSubtitleDirectory(movie.Id);
+        Directory.CreateDirectory(subtitleDirectory);
+        foreach (var track in movie.SubtitleTracks)
+        {
+            var packagedSubtitle = manifest.Subtitles.FirstOrDefault(subtitle =>
+                string.Equals(subtitle.Id, track.Id, StringComparison.Ordinal));
+            if (packagedSubtitle is null)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(packagedSubtitle.PackagePath)
+                && archive.GetEntry(packagedSubtitle.PackagePath) is { } subtitleEntry)
+            {
+                var subtitleFileName = CreateSafeFileName(string.IsNullOrWhiteSpace(track.SourceFileName)
+                    ? subtitleEntry.Name
+                    : track.SourceFileName);
+                var subtitlePath = Path.Combine(subtitleDirectory, subtitleFileName);
+                await ExtractEntryAsync(subtitleEntry, subtitlePath, cancellationToken);
+                track.LocalPath = subtitlePath;
+            }
+
+            if (!string.IsNullOrWhiteSpace(packagedSubtitle.VttPackagePath)
+                && archive.GetEntry(packagedSubtitle.VttPackagePath) is { } vttEntry)
+            {
+                var vttPath = Path.Combine(
+                    subtitleDirectory,
+                    Path.GetFileNameWithoutExtension(CreateSafeFileName(track.SourceFileName)) + ".vtt");
+                await ExtractEntryAsync(vttEntry, vttPath, cancellationToken);
+                track.VttCachePath = vttPath;
+            }
+            else if (track.Cues.Count > 0)
+            {
+                var vttPath = Path.Combine(
+                    subtitleDirectory,
+                    Path.GetFileNameWithoutExtension(CreateSafeFileName(track.SourceFileName)) + ".vtt");
+                await File.WriteAllTextAsync(vttPath, SubtitleParser.ToWebVtt(track.Cues), Encoding.UTF8, cancellationToken);
+                track.VttCachePath = vttPath;
+            }
+        }
+    }
+
+    private static async Task ExtractEntryAsync(
+        ZipArchiveEntry entry,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.GetDirectoryName(destinationPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        await using var input = entry.Open();
+        await using var output = File.Create(destinationPath);
+        await input.CopyToAsync(output, cancellationToken);
+    }
+
+    private static Movie CreateMovieFromSidecar(
+        CoffeeMovieSidecar sidecar,
+        Movie? existing,
+        string sourcePackageUri,
+        string sourcePackageName,
+        long? sourcePackageLastModified,
+        long? sourcePackageSize)
+    {
+        var movieId = string.IsNullOrWhiteSpace(sidecar.SourceMovieId)
+            ? sidecar.Movie.Id
+            : sidecar.SourceMovieId;
+        var movie = new Movie
+        {
+            Id = movieId,
+            Title = sidecar.Movie.Title,
+            SeriesTitle = sidecar.Movie.SeriesTitle,
+            SeasonNumber = sidecar.Movie.SeasonNumber,
+            EpisodeNumber = sidecar.Movie.EpisodeNumber,
+            Description = sidecar.Movie.Description,
+            Tags = (sidecar.Movie.Tags ?? []).Where(tag => !string.IsNullOrWhiteSpace(tag)).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            Playback = existing?.Playback ?? new PlaybackState { DurationSeconds = sidecar.Movie.DurationSeconds },
+            SourcePackageUri = sourcePackageUri,
+            SourcePackageName = sourcePackageName,
+            SourcePackageLastModified = sourcePackageLastModified,
+            SourcePackageSize = sourcePackageSize,
+            SourceMovieUpdatedAt = sidecar.Movie.UpdatedAt,
+            SourceContentFingerprint = sidecar.ContentFingerprint,
+            CreatedAt = sidecar.Movie.CreatedAt == default ? DateTimeOffset.UtcNow : sidecar.Movie.CreatedAt,
+            UpdatedAt = sidecar.Movie.UpdatedAt == default ? DateTimeOffset.UtcNow : sidecar.Movie.UpdatedAt,
+            Video = new VideoAsset
+            {
+                SourceKind = VideoSourceKind.GoogleDrive,
+                SourceUri = sourcePackageUri,
+                SourceKey = sourcePackageUri,
+                FileName = sidecar.Video.FileName,
+                ContentType = sidecar.Video.ContentType,
+                SizeBytes = sidecar.Video.SizeBytes,
+                ModifiedAt = sidecar.Video.ModifiedAt,
+                ContentFingerprint = sidecar.Video.ContentFingerprint,
+                ThumbnailTimestampSeconds = sidecar.Video.ThumbnailTimestampSeconds
+            },
+            SubtitleTracks = (sidecar.Subtitles ?? [])
+                .Select(CreateSubtitleTrackFromSidecar)
+                .ToList()
+        };
+
+        MergeExistingMovieState(movie, existing);
+        return movie;
+    }
+
+    private static SubtitleTrack CreateSubtitleTrackFromSidecar(CoffeeMovieSidecarSubtitle subtitle)
+    {
+        var format = Enum.TryParse<SubtitleFormat>(subtitle.Format, ignoreCase: true, out var parsedFormat)
+            ? parsedFormat
+            : SubtitleFormat.Unknown;
+        var role = Enum.TryParse<SubtitleTrackRole>(subtitle.Role, ignoreCase: true, out var parsedRole)
+            ? parsedRole
+            : SubtitleTrackRole.Unknown;
+
+        var track = new SubtitleTrack
+        {
+            Id = string.IsNullOrWhiteSpace(subtitle.Id) ? Guid.NewGuid().ToString("N") : subtitle.Id,
+            Label = subtitle.Label,
+            Language = subtitle.Language,
+            Role = role,
+            GroupKey = subtitle.GroupKey,
+            Format = format,
+            SourceFileName = string.IsNullOrWhiteSpace(subtitle.SourceFileName) ? subtitle.FileName : subtitle.SourceFileName,
+            CueCount = subtitle.CueCount,
+            Cues = (subtitle.Cues ?? [])
+                .OrderBy(cue => cue.Index)
+                .Select(cue => new SubtitleCue
+                {
+                    Id = cue.Id,
+                    Index = cue.Index,
+                    Start = TimeSpan.FromSeconds(cue.StartSeconds),
+                    End = TimeSpan.FromSeconds(cue.EndSeconds),
+                    Text = cue.Text
+                })
+                .ToList(),
+            CueLearningStates = (subtitle.LearningStates ?? [])
+                .Select(NormalizeLearningState)
+                .ToList()
+        };
+        if (track.CueCount <= 0)
+        {
+            track.CueCount = track.Cues.Count;
+        }
+
+        return track;
+    }
+
+    private static void MergeExistingMovieState(Movie movie, Movie? existing)
+    {
+        if (existing is null)
+        {
+            return;
+        }
+
+        movie.Tags = movie.Tags
+            .Concat(existing.Tags ?? [])
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (IsSameVideoAsset(movie.Video, existing.Video)
+            && !string.IsNullOrWhiteSpace(existing.Video.CachePath)
+            && File.Exists(existing.Video.CachePath))
+        {
+            movie.Video.CachePath = existing.Video.CachePath;
+        }
+
+        if (!string.IsNullOrWhiteSpace(existing.Video.ThumbnailPath)
+            && File.Exists(existing.Video.ThumbnailPath))
+        {
+            movie.Video.ThumbnailPath = existing.Video.ThumbnailPath;
+        }
+
+        if (existing.Playback is not null)
+        {
+            movie.Playback = existing.Playback;
+        }
+
+        foreach (var track in movie.SubtitleTracks)
+        {
+            var existingTrack = FindMatchingTrack(existing, track);
+            if (existingTrack is null)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(track.LocalPath)
+                && !string.IsNullOrWhiteSpace(existingTrack.LocalPath)
+                && File.Exists(existingTrack.LocalPath))
+            {
+                track.LocalPath = existingTrack.LocalPath;
+            }
+
+            if (string.IsNullOrWhiteSpace(track.VttCachePath)
+                && !string.IsNullOrWhiteSpace(existingTrack.VttCachePath)
+                && File.Exists(existingTrack.VttCachePath))
+            {
+                track.VttCachePath = existingTrack.VttCachePath;
+            }
+
+            track.CueLearningStates = MergeLearningStates(track.CueLearningStates, existingTrack.CueLearningStates);
+        }
+    }
+
+    private static SubtitleTrack? FindMatchingTrack(Movie movie, SubtitleTrack track)
+    {
+        return movie.SubtitleTracks.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, track.Id, StringComparison.Ordinal))
+            ?? movie.SubtitleTracks.FirstOrDefault(candidate =>
+                string.Equals(candidate.SourceFileName, track.SourceFileName, StringComparison.OrdinalIgnoreCase))
+            ?? movie.SubtitleTracks.FirstOrDefault(candidate =>
+                string.Equals(candidate.Language, track.Language, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(candidate.GroupKey, track.GroupKey, StringComparison.OrdinalIgnoreCase)
+                && candidate.Role == track.Role);
+    }
+
+    private static bool IsSameVideoAsset(VideoAsset left, VideoAsset right)
+    {
+        if (!string.IsNullOrWhiteSpace(left.ContentFingerprint)
+            || !string.IsNullOrWhiteSpace(right.ContentFingerprint))
+        {
+            return string.Equals(left.ContentFingerprint, right.ContentFingerprint, StringComparison.Ordinal);
+        }
+
+        return string.Equals(left.FileName, right.FileName, StringComparison.OrdinalIgnoreCase)
+            && left.SizeBytes == right.SizeBytes
+            && Nullable.Equals(left.ModifiedAt, right.ModifiedAt);
+    }
+
+    private static List<SubtitleCueLearningState> MergeLearningStates(
+        IEnumerable<SubtitleCueLearningState> packageStates,
+        IEnumerable<SubtitleCueLearningState> localStates)
+    {
+        var merged = packageStates
+            .Select(NormalizeLearningState)
+            .ToDictionary(GetLearningStateKey, StringComparer.Ordinal);
+
+        foreach (var local in localStates.Select(NormalizeLearningState))
+        {
+            var key = GetLearningStateKey(local);
+            if (!merged.TryGetValue(key, out var package))
+            {
+                merged[key] = local;
+                continue;
+            }
+
+            package.Tags = package.Tags
+                .Concat(local.Tags)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            package.IsFlagged = package.IsFlagged || local.IsFlagged;
+            package.Note = ChooseLocalText(package.Note, local.Note, package.UpdatedAt, local.UpdatedAt);
+            package.AiNote = string.IsNullOrWhiteSpace(package.AiNote) ? local.AiNote : package.AiNote;
+            package.Listening = ChooseMetric(package.Listening, local.Listening);
+            package.Shadowing = ChooseMetric(package.Shadowing, local.Shadowing);
+            package.UpdatedAt = package.UpdatedAt >= local.UpdatedAt ? package.UpdatedAt : local.UpdatedAt;
+        }
+
+        return merged.Values
+            .OrderBy(state => state.CueIndex)
+            .ToList();
+    }
+
+    private static string GetLearningStateKey(SubtitleCueLearningState state)
+    {
+        return !string.IsNullOrWhiteSpace(state.CueId)
+            ? state.CueId
+            : $"index:{state.CueIndex}";
+    }
+
+    private static SubtitleCueLearningState NormalizeLearningState(SubtitleCueLearningState state)
+    {
+        state.Tags ??= [];
+        state.Listening ??= new CuePracticeMetric();
+        state.Shadowing ??= new CuePracticeMetric();
+        if (state.UpdatedAt == default)
+        {
+            state.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+
+        return state;
+    }
+
+    private static string? ChooseLocalText(
+        string? packageValue,
+        string? localValue,
+        DateTimeOffset packageUpdatedAt,
+        DateTimeOffset localUpdatedAt)
+    {
+        if (string.IsNullOrWhiteSpace(localValue))
+        {
+            return packageValue;
+        }
+
+        if (string.IsNullOrWhiteSpace(packageValue))
+        {
+            return localValue;
+        }
+
+        return localUpdatedAt >= packageUpdatedAt ? localValue : packageValue;
+    }
+
+    private static CuePracticeMetric ChooseMetric(CuePracticeMetric packageMetric, CuePracticeMetric localMetric)
+    {
+        packageMetric ??= new CuePracticeMetric();
+        localMetric ??= new CuePracticeMetric();
+        return localMetric.AttemptCount >= packageMetric.AttemptCount ? localMetric : packageMetric;
+    }
+
+    private static void RefreshMovieSceneMarkers(Movie movie, int maxSceneMarkers)
+    {
+        var track = movie.SubtitleTracks.FirstOrDefault(candidate =>
+                candidate.Role == SubtitleTrackRole.LearningTarget && candidate.Cues.Count > 0)
+            ?? movie.SubtitleTracks.FirstOrDefault(candidate => candidate.Cues.Count > 0);
+        movie.SceneMarkers = track is null ? [] : SubtitleSceneFactory.CreateSceneMarkers(track, maxSceneMarkers);
+    }
+
+    private static async Task ApplySidecarThumbnailAsync(
+        CoffeeMoviePaths paths,
+        Movie movie,
+        CoffeeMovieSidecar sidecar,
+        CancellationToken cancellationToken)
+    {
+        movie.Video.ThumbnailTimestampSeconds = sidecar.Video.ThumbnailTimestampSeconds;
+
+        if (string.IsNullOrWhiteSpace(sidecar.Video.ThumbnailDataBase64))
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = Convert.FromBase64String(sidecar.Video.ThumbnailDataBase64);
+            if (bytes.Length == 0)
+            {
+                return;
+            }
+
+            var thumbnailPath = GetThumbnailCachePath(paths, movie.Id, sidecar.Video.ThumbnailFileName);
+            Directory.CreateDirectory(paths.ThumbnailCachePath);
+            await File.WriteAllBytesAsync(thumbnailPath, bytes, cancellationToken);
+            movie.Video.ThumbnailPath = thumbnailPath;
+        }
+        catch (FormatException)
+        {
+            // Bad thumbnail payloads should not block package imports.
+        }
+    }
+
+    private static string GetThumbnailCachePath(CoffeeMoviePaths paths, string movieId, string? sourceFileName)
+    {
+        var extension = Path.GetExtension(sourceFileName);
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            extension = ".jpg";
+        }
+
+        return Path.Combine(paths.ThumbnailCachePath, $"{CreateSafeFileName(movieId)}{extension}");
+    }
+
     private static async Task WriteReaderPackageSidecarAsync(
         string sidecarPath,
         CoffeeMovieSidecar sidecar,
@@ -447,5 +894,18 @@ public sealed class CoffeeMoviePackageService
             .Trim();
 
         return string.IsNullOrWhiteSpace(safe) ? "movie" : safe;
+    }
+
+    private static string GuessVideoContentType(string fileName)
+    {
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".webm" => "video/webm",
+            ".mov" => "video/quicktime",
+            ".m4v" => "video/x-m4v",
+            ".mkv" => "video/x-matroska",
+            ".avi" => "video/x-msvideo",
+            _ => "video/mp4"
+        };
     }
 }

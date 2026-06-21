@@ -9,6 +9,7 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Infers `.en.srt` as the English learning-target track and `.ja.srt` as the Japanese translation track.
 - Keeps English and Japanese tracks separate, linked by `groupKey`.
 - Shows edit preview with seek bar, subtitle overlay, and full-size preview tab.
+- Carries the edit-preview timeline position into the full-preview tab and can mirror the preview into a muted popup window while editing subtitles.
 - Supports paired English/Japanese display and independent overlay placement for English, Japanese, AI note, and user note lines.
 - Allows cue click/double-click jumping.
 - Allows cue start/end editing, current-position boundary assignment, and millisecond nudges.
@@ -26,6 +27,7 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Highlights tagged subtitle rows with a configurable color.
 - Stores cue-level free-form notes, AI notes, listening metrics, and shadowing metrics.
 - Generates English subtitles through a configurable WhisperX command.
+- Offers normal English subtitle generation and review generation that runs WhisperX three times, merges missing cues, and stabilizes cue timing by consensus.
 - Generates Japanese subtitles through a provider-neutral external command. The `codex-spark` preset resolves to the local Codex CLI.
 - Generates AI learning notes through a configurable external command and prompt.
 - Lets users edit translation and AI-note prompts and restore built-in base prompts.
@@ -35,6 +37,8 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Exports Drive-ready `.coffeemovie` packages and `.coffeemovie.json` sidecars.
 - Embeds thumbnail images in reader packages and sidecars when a thumbnail exists.
 - Skips package export when the current content fingerprint and thumbnail payload match the existing sidecar in the Drive sync folder.
+- Uses the CoffeeMovie icon as the Windows application icon.
+- Can be packaged as a per-user WiX MSI with Start Menu and desktop shortcuts.
 
 ## Android Reader
 
@@ -101,6 +105,6 @@ File size is used for download progress and cache integrity checks. It is not th
 ## Known Gaps
 
 - Shadowing input audio playback is not implemented because Android `SpeechRecognizer` returns recognition text but not a reusable audio file.
-- Drive sync still downloads sidecars on each sync. This is intentional because sidecars are small and are the authoritative comparison surface.
+- Drive sync still downloads sidecars on each sync. This is intentional because sidecars are small and are the authoritative comparison surface; package bytes are downloaded only when a package is missing or the sidecar fingerprint differs from the local cache.
 - If Google Drive contains duplicate package names, the current list logic may pick the first matching sidecar. The intended workflow is overwrite-in-place from the desktop Drive folder.
 - Learning-state backup is currently a shareable/importable JSON file. Drive-native automatic upload and restore is the next data-safety step.

@@ -151,7 +151,13 @@ public partial class MainWindow
             NormalizeOptionalText(WhisperModelTextBox.Text) ?? "medium",
             NormalizeOptionalText(WhisperLanguageTextBox.Text) ?? "en",
             SelectedComboText(WhisperDeviceComboBox, "cuda"),
-            SelectedComboText(WhisperComputeTypeComboBox, "float16"));
+            SelectedComboText(WhisperComputeTypeComboBox, "float16"),
+            string.Equals(
+                SelectedComboValue(EnglishSubtitleGenerationModeComboBox, "normal"),
+                "review",
+                StringComparison.OrdinalIgnoreCase)
+                    ? EnglishSubtitleGenerationMode.Review
+                    : EnglishSubtitleGenerationMode.Normal);
 
         return await _subtitleGenerationJobService.GenerateEnglishSubtitleAsync(
             options,
@@ -330,6 +336,11 @@ public partial class MainWindow
             : fallback;
     }
 
+    private static string SelectedComboValue(System.Windows.Controls.ComboBox comboBox, string fallback)
+    {
+        return comboBox.SelectedValue?.ToString() ?? fallback;
+    }
+
     private static void SelectComboBoxItem(System.Windows.Controls.ComboBox comboBox, string? value, string fallback)
     {
         var target = string.IsNullOrWhiteSpace(value) ? fallback : value;
@@ -345,6 +356,28 @@ public partial class MainWindow
         foreach (var item in comboBox.Items.OfType<ComboBoxItem>())
         {
             if (string.Equals(item.Content?.ToString(), fallback, StringComparison.OrdinalIgnoreCase))
+            {
+                comboBox.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private static void SelectComboBoxValue(System.Windows.Controls.ComboBox comboBox, string? value, string fallback)
+    {
+        var target = string.IsNullOrWhiteSpace(value) ? fallback : value;
+        foreach (var item in comboBox.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(item.Tag?.ToString(), target, StringComparison.OrdinalIgnoreCase))
+            {
+                comboBox.SelectedItem = item;
+                return;
+            }
+        }
+
+        foreach (var item in comboBox.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(item.Tag?.ToString(), fallback, StringComparison.OrdinalIgnoreCase))
             {
                 comboBox.SelectedItem = item;
                 return;

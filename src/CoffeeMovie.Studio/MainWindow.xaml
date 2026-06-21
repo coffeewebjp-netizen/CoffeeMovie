@@ -25,12 +25,13 @@
                     <TextBlock Text="CoffeeMovie Studio" FontSize="26" FontWeight="Bold" />
                     <TextBlock Text="動画と字幕を取り込み、モバイル用のシーン情報を準備します" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" />
                 </StackPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <WrapPanel DockPanel.Dock="Right" VerticalAlignment="Center" HorizontalAlignment="Right">
                     <Button Content="タグ管理" Click="OnManageTagsClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                     <Button Content="Drive設定" Click="OnConfigureDriveSyncFolderClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                    <Button x:Name="ImportDrivePackagesButton" Content="Driveから取り込み" Click="OnImportDrivePackagesClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                     <Button Content="動画を追加" Click="OnImportVideoClicked" />
                     <Button Content="更新" Click="OnRefreshClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
-                </StackPanel>
+                </WrapPanel>
             </DockPanel>
         </Border>
 
@@ -134,7 +135,7 @@
             </Border>
 
             <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8">
-                <TabControl x:Name="MainTabControl">
+                <TabControl x:Name="MainTabControl" SelectionChanged="OnMainTabSelectionChanged">
                     <TabItem x:Name="EditTabItem" Header="編集">
                         <ScrollViewer VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled">
@@ -210,6 +211,7 @@
                             <Button x:Name="PlayButton" Content="プレビュー再生" Click="OnPlayPreviewClicked" Background="#5DE0D0" />
                             <Button x:Name="PauseButton" Content="一時停止" Click="OnPausePreviewClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                             <Button x:Name="StopButton" Content="停止" Click="OnStopPreviewClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                            <Button x:Name="PreviewPopupButton" Content="別窓プレビュー" Click="OnOpenPreviewPopupClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                             <Button x:Name="CreateThumbnailButton" Content="サムネイル作成" Click="OnCreateThumbnailClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                             <Button x:Name="PlayThumbnailClipButton" Content="サムネ位置5秒" Click="OnPlayThumbnailClipClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                         </StackPanel>
@@ -875,6 +877,18 @@
                                         Background="#121A26"
                                         Foreground="White"
                                         BorderBrush="#27364A" />
+                                <TextBlock Text="英語生成"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           VerticalAlignment="Center"
+                                           Margin="4,0,4,0" />
+                                <ComboBox x:Name="EnglishSubtitleGenerationModeComboBox"
+                                          Width="120"
+                                          SelectedValuePath="Tag"
+                                          SelectedIndex="0"
+                                          Margin="0,0,8,0">
+                                    <ComboBoxItem Content="通常" Tag="normal" />
+                                    <ComboBoxItem Content="精査 x3" Tag="review" />
+                                </ComboBox>
                                 <CheckBox x:Name="OverwriteGeneratedSubtitleCheckBox"
                                           Content="既存.en.srtを退避して再生成"
                                           Foreground="White"

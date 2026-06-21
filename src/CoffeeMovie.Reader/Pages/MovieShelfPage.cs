@@ -9,6 +9,7 @@ namespace CoffeeMovie.Reader.Pages;
 public sealed partial class MovieShelfPage : ContentPage
 {
     private const string DefaultGoogleDriveClientId = "327808944898-6q8gs3t06ts12tsaqagg5268tahug7ru.apps.googleusercontent.com";
+    private const string ReaderVersionText = "v0.1.1";
 
     private readonly ReaderLibraryService _libraryService;
     private readonly GoogleDriveSyncService _googleDriveSyncService;
@@ -68,7 +69,7 @@ public sealed partial class MovieShelfPage : ContentPage
     private readonly Button _importButton = CreateHeaderButton("動画");
     private readonly Button _driveSettingsButton = CreateHeaderButton("Drive設定");
     private readonly Button _syncButton = CreateHeaderButton("同期");
-    private readonly Button _backupButton = CreateHeaderButton("Backup");
+    private readonly Button _moreButton = CreateHeaderButton("その他");
     private readonly HashSet<string> _collapsedSeries = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _collapsedSeasons = new(StringComparer.OrdinalIgnoreCase);
     private bool _isSyncing;
@@ -92,7 +93,7 @@ public sealed partial class MovieShelfPage : ContentPage
         _importButton.Clicked += async (_, _) => await ImportVideoAsync();
         _driveSettingsButton.Clicked += async (_, _) => await ConfigureGoogleDriveAsync();
         _syncButton.Clicked += async (_, _) => await SyncGoogleDriveAsync();
-        _backupButton.Clicked += async (_, _) => await ManageLearningBackupAsync();
+        _moreButton.Clicked += async (_, _) => await ManageOtherActionsAsync();
 
         _moviesView.ItemTemplate = new ShelfRowTemplateSelector
         {
@@ -107,21 +108,16 @@ public sealed partial class MovieShelfPage : ContentPage
             ColumnDefinitions =
             {
                 new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Star)
             },
-            RowDefinitions =
-            {
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Auto)
-            },
             ColumnSpacing = 8,
-            RowSpacing = 8,
-            Children = { _importButton, _driveSettingsButton, _syncButton, _backupButton }
+            Children = { _importButton, _driveSettingsButton, _syncButton, _moreButton }
         };
         Grid.SetColumn(_driveSettingsButton, 1);
-        Grid.SetRow(_syncButton, 1);
-        Grid.SetRow(_backupButton, 1);
-        Grid.SetColumn(_backupButton, 1);
+        Grid.SetColumn(_syncButton, 2);
+        Grid.SetColumn(_moreButton, 3);
 
         var header = new VerticalStackLayout
         {
@@ -143,7 +139,7 @@ public sealed partial class MovieShelfPage : ContentPage
                         },
                         new Label
                         {
-                            Text = "動画棚",
+                            Text = $"動画棚 {ReaderVersionText}",
                             TextColor = Color.FromArgb("#A5B3C6"),
                             FontSize = 13
                         }
@@ -662,8 +658,9 @@ public sealed partial class MovieShelfPage : ContentPage
             TextColor = Color.FromArgb("#04100F"),
             FontAttributes = FontAttributes.Bold,
             CornerRadius = 8,
-            HeightRequest = 42,
-            Padding = new Thickness(14, 0)
+            HeightRequest = 38,
+            FontSize = 13,
+            Padding = new Thickness(8, 0)
         };
     }
 

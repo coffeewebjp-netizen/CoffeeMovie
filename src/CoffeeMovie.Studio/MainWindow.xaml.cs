@@ -52,6 +52,7 @@ public partial class MainWindow
     private bool _isUpdatingPreferences;
     private bool _isUpdatingPreviewSlider;
     private bool _isOpeningGlobalSceneRow;
+    private FullPreviewPopupWindow? _previewPopupWindow;
 
     public MainWindow()
     {
@@ -67,6 +68,7 @@ public partial class MainWindow
         {
             UpdatePreviewSeekFromPlayer();
             UpdateFullPreviewSeekFromPlayer();
+            SyncPreviewPopupFromActiveSurface();
         };
         PreviewSeekSlider.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler(OnPreviewSeekDragStarted));
         PreviewSeekSlider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler(OnPreviewSeekDragCompleted));
@@ -75,6 +77,7 @@ public partial class MainWindow
         FullPreviewSeekSlider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler(OnFullPreviewSeekDragCompleted));
         FullPreviewSeekSlider.LostMouseCapture += OnFullPreviewSeekLostMouseCapture;
         Loaded += async (_, _) => await RefreshMoviesAsync();
+        Closed += (_, _) => _previewPopupWindow?.Close();
         ResetPreviewSeek();
         ResetFullPreviewSeek();
         SetDetailsEnabled(false);
@@ -338,6 +341,7 @@ public partial class MainWindow
         PlayButton.IsEnabled = enabled;
         PauseButton.IsEnabled = enabled;
         StopButton.IsEnabled = enabled;
+        PreviewPopupButton.IsEnabled = enabled;
         CreateThumbnailButton.IsEnabled = enabled;
         PlayThumbnailClipButton.IsEnabled = enabled && _selectedMovie?.Video.ThumbnailTimestampSeconds is not null;
         FullPreviewPlayButton.IsEnabled = enabled;
@@ -376,6 +380,7 @@ public partial class MainWindow
         WhisperLanguageTextBox.IsEnabled = enabled;
         WhisperDeviceComboBox.IsEnabled = enabled;
         WhisperComputeTypeComboBox.IsEnabled = enabled;
+        EnglishSubtitleGenerationModeComboBox.IsEnabled = enabled;
         TranslationCommandTextBox.IsEnabled = enabled;
         TranslationArgumentsTextBox.IsEnabled = enabled;
         TranslationSourceLanguageTextBox.IsEnabled = enabled;
@@ -478,6 +483,10 @@ public partial class MainWindow
                 : library.Studio.WhisperLanguage;
             SelectComboBoxItem(WhisperDeviceComboBox, library.Studio.WhisperDevice, "cuda");
             SelectComboBoxItem(WhisperComputeTypeComboBox, library.Studio.WhisperComputeType, "float16");
+            SelectComboBoxValue(
+                EnglishSubtitleGenerationModeComboBox,
+                library.Studio.EnglishSubtitleGenerationMode,
+                "normal");
             TranslationCommandTextBox.Text = string.IsNullOrWhiteSpace(library.Studio.TranslationCommand)
                 ? DefaultTranslationCommand
                 : library.Studio.TranslationCommand;
@@ -537,6 +546,9 @@ public partial class MainWindow
         library.Studio.WhisperLanguage = NormalizeOptionalText(WhisperLanguageTextBox.Text) ?? "en";
         library.Studio.WhisperDevice = SelectedComboText(WhisperDeviceComboBox, "cuda");
         library.Studio.WhisperComputeType = SelectedComboText(WhisperComputeTypeComboBox, "float16");
+        library.Studio.EnglishSubtitleGenerationMode = SelectedComboValue(
+            EnglishSubtitleGenerationModeComboBox,
+            "normal");
         library.Studio.TranslationCommand = NormalizeOptionalText(TranslationCommandTextBox.Text) ?? DefaultTranslationCommand;
         library.Studio.TranslationModel = NormalizeOptionalText(TranslationModelTextBox.Text) ?? DefaultCodexSparkModel;
         library.Studio.TranslationArguments = NormalizeOptionalText(TranslationArgumentsTextBox.Text)

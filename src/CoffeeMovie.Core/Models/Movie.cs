@@ -32,6 +32,14 @@ public sealed class Movie
 
     public long? SourcePackageSize { get; set; }
 
+    public string? SourceSidecarUri { get; set; }
+
+    public string? SourceSidecarName { get; set; }
+
+    public long? SourceSidecarLastModified { get; set; }
+
+    public long? SourceSidecarSize { get; set; }
+
     public DateTimeOffset? SourceMovieUpdatedAt { get; set; }
 
     public string? SourceContentFingerprint { get; set; }
