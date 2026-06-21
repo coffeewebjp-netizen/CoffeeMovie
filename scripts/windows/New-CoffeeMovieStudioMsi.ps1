@@ -114,15 +114,24 @@ $files = Get-ChildItem -LiteralPath $sourceRoot -File |
 $fileComponents = New-Object System.Collections.Generic.List[string]
 $componentRefs = New-Object System.Collections.Generic.List[string]
 $index = 1
+$hasAppExecutable = $false
 
 foreach ($file in $files) {
-    $componentId = "AppFileComponent$index"
-    $fileId = "AppFile$index"
+    $isAppExecutable = [string]::Equals($file.Name, "CoffeeMovie.Studio.exe", [StringComparison]::OrdinalIgnoreCase)
+    $componentId = if ($isAppExecutable) { "AppExecutableComponent" } else { "AppFileComponent$index" }
+    $fileId = if ($isAppExecutable) { "AppExecutableFile" } else { "AppFile$index" }
+    if ($isAppExecutable) {
+        $hasAppExecutable = $true
+    }
     $source = $file.FullName.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace('"', "&quot;")
     $name = $file.Name.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace('"', "&quot;")
     $fileComponents.Add("        <Component Id=""$componentId"" Guid=""*"">`r`n          <File Id=""$fileId"" Source=""$source"" Name=""$name"" KeyPath=""yes"" />`r`n        </Component>")
     $componentRefs.Add("      <ComponentRef Id=""$componentId"" />")
     $index++
+}
+
+if (-not $hasAppExecutable) {
+    throw "App executable was not included in the MSI source files: $appExePath"
 }
 
 $fileComponentXml = [string]::Join("`r`n", $fileComponents)
@@ -165,7 +174,7 @@ $fileComponentXml
       <Component Id="StartMenuShortcutComponent" Directory="ApplicationProgramsFolder" Guid="*">
         <Shortcut Id="StartMenuShortcut"
                   Name="CoffeeMovie Studio"
-                  Target="[INSTALLFOLDER]CoffeeMovie.Studio.exe"
+                  Target="[#AppExecutableFile]"
                   WorkingDirectory="INSTALLFOLDER"
                   Icon="CoffeeMovieStudioIcon"
                   IconIndex="0" />
@@ -180,7 +189,7 @@ $fileComponentXml
       <Component Id="DesktopShortcutComponent" Directory="DesktopFolder" Guid="*">
         <Shortcut Id="DesktopShortcut"
                   Name="CoffeeMovie Studio"
-                  Target="[INSTALLFOLDER]CoffeeMovie.Studio.exe"
+                  Target="[#AppExecutableFile]"
                   WorkingDirectory="INSTALLFOLDER"
                   Icon="CoffeeMovieStudioIcon"
                   IconIndex="0" />
