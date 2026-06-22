@@ -22,6 +22,8 @@ public sealed partial class ReaderLibraryService
         _cacheStore = new MovieCacheStore(_paths);
     }
 
+    public int Revision => _libraryStore.Revision;
+
     public async Task<IReadOnlyList<Movie>> LoadMoviesAsync(CancellationToken cancellationToken = default)
     {
         var library = await _libraryStore.LoadAsync(cancellationToken);

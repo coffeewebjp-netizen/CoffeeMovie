@@ -1003,7 +1003,22 @@ public partial class MainWindow
             return;
         }
 
-        if (_selectedMovie?.Video.CachePath is null || !File.Exists(_selectedMovie.Video.CachePath))
+        var videoPath = _selectedMovie?.Video.CachePath;
+        if (string.IsNullOrWhiteSpace(videoPath))
+        {
+            _previewPopupWindow.Clear();
+            _previewPopupVideoPath = null;
+            _previewPopupVideoAvailable = false;
+            return;
+        }
+
+        if (!string.Equals(_previewPopupVideoPath, videoPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _previewPopupVideoPath = videoPath;
+            _previewPopupVideoAvailable = File.Exists(videoPath);
+        }
+
+        if (!_previewPopupVideoAvailable)
         {
             _previewPopupWindow.Clear();
             return;
@@ -1012,7 +1027,7 @@ public partial class MainWindow
         var useFullPreview = FullPreviewTabItem.IsSelected;
         var position = positionOverride ?? (useFullPreview ? GetFullPreviewTimelinePosition() : GetPreviewTimelinePosition());
         var shouldPlay = useFullPreview ? _isFullPreviewPlaying : _isPreviewPlaying;
-        _previewPopupWindow.Sync(_selectedMovie.Video.CachePath, position, shouldPlay, forceSeek);
+        _previewPopupWindow.Sync(videoPath, position, shouldPlay, forceSeek);
         RenderOverlayPanels(
             _previewPopupWindow.AboveOverlayPanel,
             _previewPopupWindow.BelowOverlayPanel,

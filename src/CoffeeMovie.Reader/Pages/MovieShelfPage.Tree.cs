@@ -138,7 +138,7 @@ public sealed partial class MovieShelfPage
             target.Remove(row.Key);
         }
 
-        _ = ReloadAsync();
+        RenderShelfRows();
     }
 
     private sealed record ShelfHeaderRow(

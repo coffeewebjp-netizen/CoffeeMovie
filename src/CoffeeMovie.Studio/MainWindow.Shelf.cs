@@ -220,7 +220,7 @@ public partial class MainWindow
 
     private async void OnRefreshClicked(object sender, RoutedEventArgs e)
     {
-        await RefreshMoviesAsync(_selectedMovie?.Id);
+        await RefreshMoviesAsync(_selectedMovie?.Id, forceReload: true);
     }
 
 }

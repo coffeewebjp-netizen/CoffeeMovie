@@ -154,7 +154,7 @@ public partial class MainWindow
         SetStatus("動画の管理情報を保存しました。");
     }
 
-    private async void OnMovieSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    private void OnMovieSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (_isOpeningGlobalSceneRow)
         {
@@ -168,7 +168,7 @@ public partial class MainWindow
             return;
         }
 
-        var library = await _libraryStore.LoadAsync();
+        var library = _currentLibrary;
         _selectedMovie = library.Movies.FirstOrDefault(movie => string.Equals(movie.Id, item.MovieId, StringComparison.Ordinal));
         RenderMovieDetails(_selectedMovie);
         if (HasGlobalSubtitleTagFilter())

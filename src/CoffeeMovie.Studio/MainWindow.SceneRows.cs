@@ -45,10 +45,10 @@ public partial class MainWindow
         SceneResultsModeTextBlock.Text = $"{rows.Count} / {subtitleTrack.Cues.Count} cues";
     }
 
-    private async Task RenderGlobalSubtitleTagResultsAsync()
+    private Task RenderGlobalSubtitleTagResultsAsync()
     {
-        var library = await _libraryStore.LoadAsync();
-        RenderGlobalSubtitleTagResults(library);
+        RenderGlobalSubtitleTagResults(_currentLibrary);
+        return Task.CompletedTask;
     }
 
     private void RenderGlobalSubtitleTagResults(MovieLibrary library)

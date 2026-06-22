@@ -23,6 +23,7 @@ public partial class MainWindow
     private readonly SubtitleGenerationJobService _subtitleGenerationJobService = new();
     private readonly ObservableCollection<MovieListItem> _movies = [];
     private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private MovieLibrary _currentLibrary = new();
     private Movie? _selectedMovie;
     private SubtitleTrack? _previewSubtitleTrack;
     private SubtitleCue? _currentPreviewCue;
@@ -53,6 +54,8 @@ public partial class MainWindow
     private bool _isUpdatingPreviewSlider;
     private bool _isOpeningGlobalSceneRow;
     private FullPreviewPopupWindow? _previewPopupWindow;
+    private string? _previewPopupVideoPath;
+    private bool _previewPopupVideoAvailable;
 
     public MainWindow()
     {
@@ -77,10 +80,23 @@ public partial class MainWindow
         FullPreviewSeekSlider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler(OnFullPreviewSeekDragCompleted));
         FullPreviewSeekSlider.LostMouseCapture += OnFullPreviewSeekLostMouseCapture;
         Loaded += async (_, _) => await RefreshMoviesAsync();
-        Closed += (_, _) => _previewPopupWindow?.Close();
+        Closed += OnMainWindowClosed;
         ResetPreviewSeek();
         ResetFullPreviewSeek();
         SetDetailsEnabled(false);
+    }
+
+    private void OnMainWindowClosed(object? sender, EventArgs e)
+    {
+        _previewTimer.Stop();
+        PreviewPlayer.Stop();
+        PreviewPlayer.Source = null;
+        FullPreviewPlayer.Stop();
+        FullPreviewPlayer.Source = null;
+        _previewPopupWindow?.Close();
+        _previewPopupWindow = null;
+        _previewPopupVideoPath = null;
+        _previewPopupVideoAvailable = false;
     }
 
     private async Task<Movie> ImportVideoAsync(string sourcePath)
@@ -230,9 +246,12 @@ public partial class MainWindow
             ?? movie.SubtitleTracks.LastOrDefault();
     }
 
-    private async Task RefreshMoviesAsync(string? selectedMovieId = null)
+    private async Task RefreshMoviesAsync(string? selectedMovieId = null, bool forceReload = false)
     {
-        var library = await _libraryStore.LoadAsync();
+        var library = forceReload
+            ? await _libraryStore.ReloadAsync()
+            : await _libraryStore.LoadAsync();
+        _currentLibrary = library;
         ApplyStudioPreferences(library);
         var movies = library.Movies
             .Where(MatchesMovieFilters)

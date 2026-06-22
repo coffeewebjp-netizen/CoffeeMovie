@@ -37,6 +37,8 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Exports Drive-ready `.coffeemovie` packages and `.coffeemovie.json` sidecars.
 - Embeds thumbnail images in reader packages and sidecars when a thumbnail exists.
 - Skips package export when the current content fingerprint and thumbnail payload match the existing sidecar in the Drive sync folder.
+- Keeps the loaded library as an in-memory working set so movie selection, filtering, and preview mirroring do not re-read `library.json` on normal UI paths.
+- Stops preview timers and releases media sources on Studio shutdown.
 - Uses the CoffeeMovie icon as the Windows application icon.
 - Can be packaged as a per-user WiX MSI with Start Menu and desktop shortcuts.
 
@@ -51,6 +53,7 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Shows sidecar thumbnail images on the movie shelf before the large package is downloaded.
 - Shows the thumbnail on the player surface while the WebView/video is loading, then hides it when playback starts.
 - Shows the shelf as a collapsible series -> season -> episode tree using series title, season number, and episode number when available.
+- Keeps the loaded shelf library in memory and rebuilds shelf rows from that working set instead of re-reading `library.json` when returning from playback or expanding/collapsing groups.
 - Compares sidecar `contentFingerprint` with the local `SourceContentFingerprint`.
 - Reports Drive sync results as added/updated, unchanged, sidecar-missing, and failed.
 - Keeps existing video cache only when the incoming package describes the same video asset.

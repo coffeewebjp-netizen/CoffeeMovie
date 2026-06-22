@@ -1,7 +1,4 @@
 using System.Globalization;
-using System.IO;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using CoffeeMovie.Core.Models;
 using CoffeeMovie.Core.Services;
 using CoffeeMovie.Storage.Models;
@@ -29,7 +26,9 @@ public partial class MainWindow
                 }
                 .Where(part => !string.IsNullOrWhiteSpace(part)));
             CacheState = movie.Video.HasLocalCache ? "cached" : "not cached";
-            ThumbnailPath = LoadThumbnailSource(movie.Video.ThumbnailPath);
+            ThumbnailPath = string.IsNullOrWhiteSpace(movie.Video.ThumbnailPath)
+                ? null
+                : movie.Video.ThumbnailPath;
         }
 
         public string MovieId { get; }
@@ -44,31 +43,7 @@ public partial class MainWindow
 
         public string CacheState { get; }
 
-        public ImageSource? ThumbnailPath { get; }
-
-        private static ImageSource? LoadThumbnailSource(string? path)
-        {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            {
-                return null;
-            }
-
-            try
-            {
-                using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                var image = new BitmapImage();
-                image.BeginInit();
-                image.CacheOption = BitmapCacheOption.OnLoad;
-                image.StreamSource = stream;
-                image.EndInit();
-                image.Freeze();
-                return image;
-            }
-            catch
-            {
-                return null;
-            }
-        }
+        public string? ThumbnailPath { get; }
     }
 
     private sealed class SubtitleRow

@@ -9,7 +9,7 @@ namespace CoffeeMovie.Reader.Pages;
 public sealed partial class MovieShelfPage : ContentPage
 {
     private const string DefaultGoogleDriveClientId = "327808944898-6q8gs3t06ts12tsaqagg5268tahug7ru.apps.googleusercontent.com";
-    private const string ReaderVersionText = "v0.1.1";
+    private const string ReaderVersionText = "v0.1.2";
 
     private readonly ReaderLibraryService _libraryService;
     private readonly GoogleDriveSyncService _googleDriveSyncService;
@@ -72,9 +72,12 @@ public sealed partial class MovieShelfPage : ContentPage
     private readonly Button _moreButton = CreateHeaderButton("その他");
     private readonly HashSet<string> _collapsedSeries = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _collapsedSeasons = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<MovieListItem> _movieItems = [];
     private bool _isSyncing;
     private bool _isOpeningMovie;
     private bool _playedStartupAnimation;
+    private bool _hasLoadedLibrary;
+    private int _renderedLibraryRevision = -1;
 
     public MovieShelfPage(
         ReaderLibraryService libraryService,
@@ -200,7 +203,10 @@ public sealed partial class MovieShelfPage : ContentPage
     {
         base.OnAppearing();
         _ = PlayStartupAnimationAsync();
-        await ReloadAsync();
+        if (!_hasLoadedLibrary || _renderedLibraryRevision != _libraryService.Revision)
+        {
+            await ReloadAsync();
+        }
     }
 
     private async Task PlayStartupAnimationAsync()
@@ -273,12 +279,21 @@ public sealed partial class MovieShelfPage : ContentPage
         var movies = await _libraryService.LoadMoviesAsync();
         var items = movies.Select(CreateMovieListItem).ToList();
 
-        _moviesView.ItemsSource = BuildShelfRows(items);
+        _movieItems = items;
+        RenderShelfRows();
         _emptyLabel.IsVisible = items.Count == 0;
         if (!_isSyncing)
         {
             _summaryLabel.Text = $"{items.Count} movies";
         }
+
+        _hasLoadedLibrary = true;
+        _renderedLibraryRevision = _libraryService.Revision;
+    }
+
+    private void RenderShelfRows()
+    {
+        _moviesView.ItemsSource = BuildShelfRows(_movieItems);
     }
 
     private async Task ImportVideoAsync()

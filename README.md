@@ -22,6 +22,8 @@ Windows Studio has grown into the preparation workspace for subtitle-learning wo
 
 Google Drive integration is implemented around `.coffeemovie` packages and lightweight `.coffeemovie.json` sidecars. Studio skips export when the current content fingerprint matches the existing sidecar. Reader downloads sidecars first, compares `contentFingerprint` with local `SourceContentFingerprint`, reports unchanged packages separately, and downloads large package bytes only when the user needs a missing or updated cache.
 
+Reader and Studio keep the loaded library as an in-memory working set for normal navigation, selection, and filtering paths. Explicit refresh, import, sync, and export operations remain the boundaries where disk and Drive work are expected.
+
 ## Run Windows Studio
 
 ```powershell

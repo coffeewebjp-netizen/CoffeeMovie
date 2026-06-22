@@ -114,7 +114,12 @@ public partial class MainWindow
         {
             Owner = this
         };
-        _previewPopupWindow.Closed += (_, _) => _previewPopupWindow = null;
+        _previewPopupWindow.Closed += (_, _) =>
+        {
+            _previewPopupWindow = null;
+            _previewPopupVideoPath = null;
+            _previewPopupVideoAvailable = false;
+        };
         _previewPopupWindow.Show();
         SyncPreviewPopupFromActiveSurface(forceSeek: true);
         SetStatus("別窓プレビューを開きました。");

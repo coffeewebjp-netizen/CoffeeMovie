@@ -73,6 +73,7 @@ Before publishing a release commit, run at least:
 
 ```powershell
 dotnet build src\CoffeeMovie.Studio\CoffeeMovie.Studio.csproj -nr:false -p:UseSharedCompilation=false
+dotnet build src\CoffeeMovie.Verification\CoffeeMovie.Verification.csproj --no-restore
 ```
 
 When Reader behavior changed, also run:
