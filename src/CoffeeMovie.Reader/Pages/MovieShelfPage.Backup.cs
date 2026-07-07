@@ -1,4 +1,6 @@
+using CoffeeMovie.Core.Services;
 using CoffeeMovie.Reader.Models;
+using CoffeeMovie.Reader.Services;
 
 namespace CoffeeMovie.Reader.Pages;
 
@@ -15,13 +17,179 @@ public sealed partial class MovieShelfPage
             "その他",
             "キャンセル",
             null,
+            "CoffeeLearningログイン取得",
+            "CoffeeLearning設定",
+            "CoffeeLearning scoring",
             "Backup");
-        if (choice == "Backup")
+        if (choice == "CoffeeLearningログイン取得")
+        {
+            await Navigation.PushAsync(new CoffeeLearningLoginPage(_coffeeLearningService));
+        }
+        else if (choice == "CoffeeLearning設定")
+        {
+            await ConfigureCoffeeLearningAsync();
+        }
+        else if (choice == "CoffeeLearning scoring")
+        {
+            await ConfigureCoffeeLearningScoringAsync();
+        }
+        else if (choice == "Backup")
         {
             await ManageLearningBackupAsync();
         }
     }
 
+    private async Task ConfigureCoffeeLearningAsync()
+    {
+        try
+        {
+            var settings = await _syncSettingsService.LoadSettingsAsync();
+            var baseUrl = await DisplayPromptAsync(
+                "CoffeeLearning設定",
+                "API URL",
+                "次へ",
+                "キャンセル",
+                initialValue: string.IsNullOrWhiteSpace(settings.CoffeeLearningBaseUrl)
+                    ? CoffeeLearningWordRegistrationService.DefaultBaseUrl
+                    : settings.CoffeeLearningBaseUrl);
+            if (string.IsNullOrWhiteSpace(baseUrl))
+            {
+                return;
+            }
+
+            var deckId = await DisplayPromptAsync(
+                "CoffeeLearning設定",
+                "登録先deckId",
+                "次へ",
+                "キャンセル",
+                initialValue: string.IsNullOrWhiteSpace(settings.CoffeeLearningDeckId)
+                    ? CoffeeLearningWordRegistrationService.DefaultDeckId
+                    : settings.CoffeeLearningDeckId);
+            if (string.IsNullOrWhiteSpace(deckId))
+            {
+                return;
+            }
+
+            var authHeader = await DisplayPromptAsync(
+                "CoffeeLearning設定",
+                "認証ヘッダー。例: Cookie: connect.sid=... / Authorization: Bearer ...。空欄なら保存済みの値を維持します。",
+                "保存",
+                "キャンセル",
+                placeholder: "Cookie: connect.sid=...",
+                maxLength: 4096,
+                keyboard: Keyboard.Text);
+            if (authHeader is null)
+            {
+                return;
+            }
+
+            await _coffeeLearningService.SaveConfigurationAsync(baseUrl, deckId, authHeader);
+            _summaryLabel.Text = await _coffeeLearningService.IsConfiguredAsync()
+                ? "CoffeeLearning設定を保存しました"
+                : "CoffeeLearning URL/deckIdを保存しました。認証ヘッダーは未設定です";
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("CoffeeLearning設定に失敗しました", ex.Message, "閉じる");
+        }
+    }
+
+    private async Task ConfigureCoffeeLearningScoringAsync()
+    {
+        try
+        {
+            var settings = await _syncSettingsService.LoadSettingsAsync();
+            var modeChoice = await DisplayActionSheetAsync(
+                "CoffeeLearning scoring",
+                "Cancel",
+                null,
+                "AI provider",
+                "CoffeeLearning API",
+                "Simple estimate");
+            if (string.IsNullOrWhiteSpace(modeChoice) || modeChoice == "Cancel")
+            {
+                return;
+            }
+
+            var mode = modeChoice switch
+            {
+                "CoffeeLearning API" => CoffeeLearningScoringDefaults.ModeCoffeeLearning,
+                "Simple estimate" => CoffeeLearningScoringDefaults.ModeSimple,
+                _ => CoffeeLearningScoringDefaults.ModeAiProvider
+            };
+
+            var provider = settings.CoffeeLearningScoringProvider ?? CoffeeLearningScoringDefaults.ProviderOpenAi;
+            var baseUrl = settings.CoffeeLearningScoringProviderBaseUrl;
+            var model = settings.CoffeeLearningScoringProviderModel;
+            string? apiKey = null;
+
+            if (mode == CoffeeLearningScoringDefaults.ModeAiProvider)
+            {
+                var providerChoice = await DisplayActionSheetAsync(
+                    "AI provider",
+                    "Cancel",
+                    null,
+                    "GPT / OpenAI",
+                    "Gemini",
+                    "DeepSeek",
+                    "Local LLM");
+                if (string.IsNullOrWhiteSpace(providerChoice) || providerChoice == "Cancel")
+                {
+                    return;
+                }
+
+                provider = providerChoice switch
+                {
+                    "Gemini" => CoffeeLearningScoringDefaults.ProviderGemini,
+                    "DeepSeek" => CoffeeLearningScoringDefaults.ProviderDeepSeek,
+                    "Local LLM" => CoffeeLearningScoringDefaults.ProviderLocal,
+                    _ => CoffeeLearningScoringDefaults.ProviderOpenAi
+                };
+
+                baseUrl = await DisplayPromptAsync(
+                    "AI provider",
+                    "Base URL (blank = default)",
+                    "Next",
+                    "Cancel",
+                    initialValue: settings.CoffeeLearningScoringProviderBaseUrl ?? string.Empty);
+                if (baseUrl is null)
+                {
+                    return;
+                }
+
+                model = await DisplayPromptAsync(
+                    "AI provider",
+                    "Model",
+                    "Next",
+                    "Cancel",
+                    initialValue: settings.CoffeeLearningScoringProviderModel ?? string.Empty);
+                if (model is null)
+                {
+                    return;
+                }
+
+                apiKey = await DisplayPromptAsync(
+                    "AI provider",
+                    "API key (blank keeps saved key; Local LLM can be blank)",
+                    "Save",
+                    "Cancel",
+                    placeholder: "sk-...",
+                    maxLength: 4096,
+                    keyboard: Keyboard.Text);
+                if (apiKey is null)
+                {
+                    return;
+                }
+            }
+
+            await _coffeeLearningService.SaveScoringConfigurationAsync(mode, provider, baseUrl, model, apiKey);
+            _summaryLabel.Text = $"CoffeeLearning scoring saved: {mode}";
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("CoffeeLearning scoring failed", ex.Message, "Close");
+        }
+    }
     private async Task ManageLearningBackupAsync()
     {
         if (_isSyncing)

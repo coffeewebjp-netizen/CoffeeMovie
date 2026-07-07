@@ -19,6 +19,9 @@ Shared code:
 
 - `CoffeeMovie.Core/Models`: portable movie, video, subtitle, tag, playback, and cue learning-state models.
 - `CoffeeMovie.Core/Services/MovieMetadataInferenceService.cs`: shared filename-to-series/season/episode inference and season/episode display formatting.
+- `CoffeeMovie.Core/Services/CoffeeLearningRegistrationClient.cs`: shared CoffeeLearning `/words` and `/decks` HTTP handling used by Studio and Reader.
+- `CoffeeMovie.Core/Services/CoffeeLearningWordScoring.cs`: shared CoffeeLearning scoring prompt, fallback estimator, parser, and AI-provider scorer.
+- `CoffeeMovie.Core/Services/CoffeeLearningRegistrationMemoBuilder.cs`: shared memo formatting for AI scoring details.
 - `CoffeeMovie.Storage/Services`: JSON library storage, cache storage, subtitle parsing, sidecar/package creation, and content fingerprint calculation.
 
 Studio code:
@@ -36,7 +39,7 @@ Studio code:
 - `MainWindow.DriveExport.cs`: Drive-folder selection and Reader package export.
 - `MainWindow.Thumbnails.cs`: thumbnail capture button flow.
 - `MainWindow.Types.cs`: WPF row/view helper types used by the partial files.
-- `CoffeeMovie.Studio/Services`: testable services for learning-note import, external process execution, subtitle-generation jobs, tag filtering, and thumbnail capture.
+- `CoffeeMovie.Studio/Services`: testable services for learning-note import, external process execution, subtitle-generation jobs, tag filtering, thumbnail capture, and thin Studio-specific CoffeeLearning adapters.
 
 Reader code:
 
@@ -58,6 +61,7 @@ Reader code:
 - `GoogleDriveAuthService.cs`: OAuth configuration, PKCE browser auth, refresh-token storage, access-token refresh, and Drive folder ID parsing.
 - `GoogleDrivePackageListingService.cs`: Drive file listing and package/sidecar pairing.
 - `DrivePackageDownloadService.cs`: package/sidecar download, partial-file resume, retry handling, and cache-state reporting.
+- `CoffeeLearningWordRegistrationService.cs`: Reader settings, SecureStorage auth/API-key handling, WebView cookie capture, and delegation to the shared Core CoffeeLearning client.
 
 Development rule of thumb:
 
@@ -137,6 +141,25 @@ Studio implements both runner boundaries in the `字幕生成` tab:
 
 1. WhisperX runs as an external process for the selected movie, normalizes the output to `.en.srt`, and imports that file through the same subtitle import path used by manual drag/drop.
 2. Translation runs as a configurable external AI-AGENT command, receives an English SRT path, writes a Japanese SRT path, and then imports that `.ja.srt` through the same subtitle import path.
+3. The experimental English review mode runs WhisperX three times and compares the text outputs for missing-line or recognition variance. It is not intended to fix global timing drift; timing diagnosis should be a separate feature.
+
+Current Studio service boundaries:
+
+- `LearningNotesImportService`: stable facade for AI note import used by `MainWindow.AiNotes.cs`.
+- `LearningNotesJsonParser`: parses AI note JSON array/wrapper shapes into import rows.
+- `LearningNotesQualityValidator`: checks sparse AI-note quality, cue indexes, focus text, and placeholder output.
+- `LearningNotesImportPlanner`: relocates focus notes, tracks unresolved focus issues, and merges duplicate notes.
+- `LearningNotesTextService`: normalizes note/CEFR text and formats import diagnostics.
+- `SubtitleGenerationJobService`: orchestrates English, Japanese, and AI-note generation jobs and handles output backup/final-path decisions.
+- `SubtitleGenerationOptions`: keeps generation option/result records separate from job orchestration code.
+- `WhisperXSubtitleRunner`: builds and runs the WhisperX process and returns the generated SRT path.
+- `EnglishSubtitleReviewService`: owns the experimental three-run comparison and optional AI merge for English subtitles.
+- `SubtitleAiCommandService`: builds prompts, expands argument templates, runs AI translation and AI-note commands, and validates their generated outputs.
+- `SubtitleGenerationExternalProcessRunner`: runs external processes and pumps stdout/stderr into the Studio log.
+- `SubtitleGenerationProcessService`: compatibility facade for older subtitle-generation helper calls.
+- `SubtitleGenerationPathService`: keeps path formatting, working-directory file copies, backup, and output freshness helpers.
+- `SubtitleGenerationCommandLineService`: keeps argument-template expansion, command-line splitting, and process-command formatting.
+- `SubtitleGenerationExternalCommandFactory`: builds external process start info and resolves Codex CLI commands.
 
 The translation adapter expands these placeholders before launching the external command:
 

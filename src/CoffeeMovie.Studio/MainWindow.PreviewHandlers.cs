@@ -2,7 +2,9 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace CoffeeMovie.Studio;
@@ -163,26 +165,74 @@ public partial class MainWindow
         SyncPreviewPopupFromActiveSurface(forceSeek: true);
     }
 
-    private void OnPreviewSubtitleClicked(object sender, MouseButtonEventArgs e)
+    private async void OnPreviewSubtitleClicked(object sender, MouseButtonEventArgs e)
     {
-        if (_currentPreviewCue is not null)
+        if (sender is FrameworkElement { Tag: PreviewOverlayItem item })
         {
-            JumpPreviewTo(_currentPreviewCue.Start);
+            e.Handled = true;
+            await RegisterPreviewCueInCoffeeLearningAsync(item);
         }
     }
 
     private async void OnSceneMouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (ScenesDataGrid.SelectedItem is SceneRow row)
+        if (ScenesDataGrid.SelectedItem is not SceneRow row)
         {
-            if (row.IsGlobalResult)
+            return;
+        }
+
+        if (row.IsGlobalResult)
+        {
+            await OpenGlobalSceneRowAsync(row);
+            return;
+        }
+
+        if (IsSceneEditableTextCell(e.OriginalSource as DependencyObject))
+        {
+            e.Handled = true;
+            ScenesDataGrid.BeginEdit(e);
+            return;
+        }
+
+        JumpPreviewTo(row.Start);
+    }
+
+    private static bool IsSceneEditableTextCell(DependencyObject? source)
+    {
+        var cell = FindVisualParent<DataGridCell>(source);
+        if (cell?.Column is not DataGridBoundColumn boundColumn
+            || boundColumn.Binding is not Binding binding)
+        {
+            return false;
+        }
+
+        var path = binding.Path?.Path;
+        return string.Equals(path, nameof(SceneRow.AiNote), StringComparison.Ordinal)
+            || string.Equals(path, nameof(SceneRow.Note), StringComparison.Ordinal);
+    }
+
+    private static T? FindVisualParent<T>(DependencyObject? source)
+        where T : DependencyObject
+    {
+        var current = source;
+        while (current is not null)
+        {
+            if (current is T match)
             {
-                await OpenGlobalSceneRowAsync(row);
-                return;
+                return match;
             }
 
-            JumpPreviewTo(row.Start);
+            try
+            {
+                current = VisualTreeHelper.GetParent(current);
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
         }
+
+        return null;
     }
 
     private async void OnSceneCurrentCellChanged(object sender, EventArgs e)

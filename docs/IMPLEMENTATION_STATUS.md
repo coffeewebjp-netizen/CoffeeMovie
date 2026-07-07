@@ -25,12 +25,15 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Can search tagged subtitle cue rows across matching movies when a subtitle tag filter is active.
 - Lets cue tags be changed through the same multi-select picker used by movie and subtitle tags.
 - Highlights tagged subtitle rows with a configurable color.
-- Stores cue-level free-form notes, AI notes, listening metrics, and shadowing metrics.
+- Stores cue-level free-form notes, AI notes, listening metrics, shadowing metrics, and CoffeeLearning registration state.
 - Generates English subtitles through a configurable WhisperX command.
-- Offers normal English subtitle generation and review generation that runs WhisperX three times, merges missing cues, and stabilizes cue timing by consensus.
+- Offers normal English subtitle generation and an experimental review generation mode that runs WhisperX three times, compares text variance, and can merge missing/variant cues. It is not expected to repair global timing drift.
 - Generates Japanese subtitles through a provider-neutral external command. The `codex-spark` preset resolves to the local Codex CLI.
 - Generates AI learning notes through a configurable external command and prompt.
 - Lets users edit translation and AI-note prompts and restore built-in base prompts.
+- Registers the active English subtitle cue into CoffeeLearning from Studio, using matched Japanese subtitle text, AI/user notes, CEFR/point scoring, and combined movie/cue labels.
+- Acquires CoffeeLearning Studio auth through a normal-browser localhost handoff, with manual Bearer header entry as a fallback.
+- Supports CoffeeLearning scoring through AIAGENT, AI provider settings, CoffeeLearning server analysis, or local fallback estimates.
 - Creates thumbnails from the current preview frame through `ffmpeg`.
 - Saves thumbnail path and thumbnail timestamp on the video asset.
 - Can replay the thumbnail timestamp for five seconds.
@@ -64,12 +67,15 @@ This note captures the current CoffeeMovie implementation state after the PC Stu
 - Collapses subtitle-file line breaks for video overlay display so short Japanese lines do not waste vertical space.
 - Supports subtitle vertical position: bottom, middle, top.
 - Supports subtitle horizontal alignment: left, center, right.
+- Persists the last playback position and resumes near that point instead of restarting from the beginning.
 - Provides fullscreen controls for pause/resume, one-second rewind, five-second rewind, custom rewind, and custom rewind setting.
 - Provides fullscreen shadowing when English subtitles are enabled and an active English cue exists.
 - Highlights the target English subtitle during shadowing recognition.
 - Shows recognized speech text and OK/NG accuracy feedback.
 - Stores shadowing OK/NG counts, last transcript, and accuracy in cue learning state.
 - Uses device text-to-speech to replay the original English subtitle after a failed shadowing attempt.
+- Registers the active cue into CoffeeLearning from the learning panel or fullscreen controls, marks cues as registered only after a successful server response, and shows that state in the player.
+- Provides CoffeeLearning login/configuration/scoring settings from the shelf Other menu, including AI provider scoring options for GPT/OpenAI, Gemini, DeepSeek, and local OpenAI-compatible LLMs.
 - Can export and import a lightweight learning-state backup JSON from the shelf `Backup` button.
 - The learning-state backup stores movie tags, playback state, subtitle cue tags, notes, AI notes, listening metrics, and shadowing metrics without duplicating video bytes.
 
@@ -89,7 +95,7 @@ The sidecar is the lightweight comparison file. It contains:
 - series title, season number, and episode number
 - video metadata
 - subtitle cues
-- cue learning states
+- cue learning states, including CoffeeLearning registration state
 - optional thumbnail image payload
 
 The current diff rule is:
@@ -101,7 +107,7 @@ The current diff rule is:
 5. If the incoming fingerprint matches local `SourceContentFingerprint`, Reader records it as unchanged.
 6. If the fingerprint differs, Reader updates the local shell and marks the package as updated.
 
-The fingerprint includes movie identity, title, series title, season number, episode number, description, video identity fields, thumbnail timestamp, thumbnail image hash when present, movie tags, subtitle track metadata, cue timing/text, cue tags, notes, AI notes, and listening/shadowing metrics.
+The fingerprint includes movie identity, title, series title, season number, episode number, description, video identity fields, thumbnail timestamp, thumbnail image hash when present, movie tags, subtitle track metadata, cue timing/text, cue tags, notes, AI notes, CoffeeLearning registration state, and listening/shadowing metrics.
 
 File size is used for download progress and cache integrity checks. It is not the primary content-difference signal.
 
@@ -111,3 +117,4 @@ File size is used for download progress and cache integrity checks. It is not th
 - Drive sync still downloads sidecars on each sync. This is intentional because sidecars are small and are the authoritative comparison surface; package bytes are downloaded only when a package is missing or the sidecar fingerprint differs from the local cache.
 - If Google Drive contains duplicate package names, the current list logic may pick the first matching sidecar. The intended workflow is overwrite-in-place from the desktop Drive folder.
 - Learning-state backup is currently a shareable/importable JSON file. Drive-native automatic upload and restore is the next data-safety step.
+- English review generation is kept as an experimental quality aid for missing/variant subtitle text; global timing drift still needs a separate diagnosis/alignment feature.

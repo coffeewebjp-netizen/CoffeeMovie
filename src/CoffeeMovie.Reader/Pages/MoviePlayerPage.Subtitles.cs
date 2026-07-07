@@ -177,6 +177,7 @@ public sealed partial class MoviePlayerPage
         _tagsEntry.IsEnabled = enabled;
         _noteEditor.IsEnabled = enabled;
         _saveLearningButton.IsEnabled = enabled;
+        UpdateCoffeeLearningRegisterButtons(enabled);
         _shadowingButton.IsEnabled = shadowingEnabled;
         _shadowOkButton.IsEnabled = shadowingEnabled;
         _shadowNgButton.IsEnabled = shadowingEnabled;

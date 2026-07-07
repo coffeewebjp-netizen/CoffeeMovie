@@ -79,8 +79,6 @@ public partial class MainWindow
         SubtitleTagFilterTextBox.Margin = new Thickness(0, 0, 152, 0);
         AddGridTagSelectorButtons(SubtitleTagFilterTextBox, OnSelectSubtitleTagFilterClicked, OnClearSubtitleTagFilterClicked);
 
-        MovieTagsTextBox.Margin = new Thickness(8, 4, 80, 0);
-        AddGridTagSelectorButton(MovieTagsTextBox, OnSelectMovieTagsClicked);
 
         if (SceneTagFilterTextBox.Parent is Panel panel)
         {
@@ -114,20 +112,6 @@ public partial class MainWindow
         grid.Children.Add(buttons);
     }
 
-    private static void AddGridTagSelectorButton(System.Windows.Controls.TextBox target, RoutedEventHandler clickHandler)
-    {
-        if (target.Parent is not Grid grid)
-        {
-            return;
-        }
-
-        var button = CreateTagSelectorButton(clickHandler, new Thickness(0, target.Margin.Top, 0, target.Margin.Bottom));
-        button.HorizontalAlignment = HorizontalAlignment.Right;
-        button.VerticalAlignment = VerticalAlignment.Stretch;
-        Grid.SetRow(button, Grid.GetRow(target));
-        Grid.SetColumn(button, Grid.GetColumn(target));
-        grid.Children.Add(button);
-    }
 
     private static Button CreateTagSelectorButton(RoutedEventHandler clickHandler, Thickness margin, string text = "選択")
     {

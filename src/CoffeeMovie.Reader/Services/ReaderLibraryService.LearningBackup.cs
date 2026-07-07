@@ -159,6 +159,9 @@ public sealed partial class ReaderLibraryService
             || state.Tags.Count > 0
             || !string.IsNullOrWhiteSpace(state.Note)
             || !string.IsNullOrWhiteSpace(state.AiNote)
+            || state.CoffeeLearningRegisteredAt is not null
+            || !string.IsNullOrWhiteSpace(state.CoffeeLearningWordId)
+            || !string.IsNullOrWhiteSpace(state.CoffeeLearningDeckId)
             || HasPracticePayload(state.Listening)
             || HasPracticePayload(state.Shadowing);
     }

@@ -15,6 +15,35 @@ public partial class MainWindow
     private const string DefaultLearningNotesAudienceLevel = "B1";
     private const string DefaultTranslationArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{inputDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, translate {input}, and write the Japanese SRT to {output}.\"";
     private const string DefaultLearningNotesArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{inputDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, analyze {input}, and write sparse learning notes JSON to {notesOutput}. Do not generate the JSON with a PowerShell/Python classification script.\"";
+    private const string DefaultEnglishSubtitleReviewArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{reviewDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, compare {review1}, {review2}, and {review3}, then write the final English SRT to {output}.\"";
+    private const string DefaultEnglishSubtitleReviewPrompt = """
+You are CoffeeMovie's English subtitle review agent.
+
+Goal:
+- Compare three WhisperX English SRT candidates generated from the same video.
+- Write one best final English SRT to `{output}`.
+- The video title is `{title}`.
+
+Inputs:
+- Candidate 1: `{review1}`
+- Candidate 2: `{review2}`
+- Candidate 3: `{review3}`
+
+Decision rules:
+- Do not simply choose one full candidate. Build the best final subtitle by comparing text and timing cue by cue.
+- Preserve every real utterance that appears in at least one candidate and fits the timeline.
+- Prefer wording that is supported by multiple candidates, but keep singleton cues when they look like a genuine missed utterance.
+- Prefer the timing that best matches neighboring cues. Median timing is usually good, but adjust obvious misplaced starts or ends.
+- Keep the output chronological, non-overlapping, and readable as subtitles.
+- Merge duplicated cues; split only when the candidates clearly show separate utterances.
+- Renumber cues from 1 in the final output.
+- Output a valid UTF-8 SRT file only. Do not write Markdown, comments, analysis, or code fences.
+
+Quality bar:
+- The final SRT must parse as SRT.
+- Use natural English punctuation and capitalization.
+- Keep line breaks conservative; one or two readable lines per cue is preferred.
+""";
     private const string DefaultTranslationPrompt = """
 あなたはアニメ英語字幕を日本語字幕へ翻訳する専門エージェントです。
 

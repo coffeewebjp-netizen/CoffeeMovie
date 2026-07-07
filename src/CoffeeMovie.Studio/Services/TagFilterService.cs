@@ -40,7 +40,8 @@ public static class TagFilterService
         }
 
         return text
-            .Split([',', '\u3001', '\u30FB', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Split([',', '\u3001', ';', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(tag => tag.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }

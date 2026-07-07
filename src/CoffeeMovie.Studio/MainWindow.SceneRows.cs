@@ -172,8 +172,9 @@ public partial class MainWindow
         }
 
         var note = NormalizeOptionalText(row.Note);
+        var aiNote = NormalizeOptionalText(row.AiNote);
         var state = FindCueLearningState(_previewSubtitleTrack, row.CueId, row.CueIndex);
-        if (state is null && !row.IsFlagged && tags.Count == 0 && note is null)
+        if (state is null && !row.IsFlagged && tags.Count == 0 && note is null && aiNote is null)
         {
             return;
         }
@@ -181,7 +182,8 @@ public partial class MainWindow
         state ??= EnsureCueLearningState(_previewSubtitleTrack, row.CueId, row.CueIndex);
         var isDirty = state.IsFlagged != row.IsFlagged
             || !state.Tags.SequenceEqual(tags, StringComparer.OrdinalIgnoreCase)
-            || !string.Equals(state.Note, note, StringComparison.Ordinal);
+            || !string.Equals(state.Note, note, StringComparison.Ordinal)
+            || !string.Equals(state.AiNote, aiNote, StringComparison.Ordinal);
         if (!isDirty)
         {
             return;
@@ -190,10 +192,12 @@ public partial class MainWindow
         state.IsFlagged = tags.Any(IsFlagTag);
         state.Tags = tags;
         state.Note = note;
+        state.AiNote = aiNote;
         state.UpdatedAt = DateTimeOffset.UtcNow;
         row.IsFlagged = state.IsFlagged;
         row.Tags = string.Join(", ", tags);
         row.Note = note ?? string.Empty;
+        row.AiNote = aiNote ?? string.Empty;
 
         await _libraryStore.UpsertMovieAsync(_selectedMovie);
         if (FlaggedOnlyCheckBox.IsChecked == true && !row.IsFlagged)
@@ -480,6 +484,11 @@ public partial class MainWindow
 
     private static System.Windows.Media.Brush CreateSceneRowBackground(SubtitleCueLearningState? state, string highlightColor)
     {
+        if (IsCoffeeLearningRegistered(state))
+        {
+            return new SolidColorBrush(Color.FromArgb(0x42, 0x23, 0x7A, 0x58));
+        }
+
         return HasSubtitleTags(state)
             ? CreateBrush(highlightColor, 0x4D)
             : new SolidColorBrush(Color.FromRgb(0x0B, 0x11, 0x1A));

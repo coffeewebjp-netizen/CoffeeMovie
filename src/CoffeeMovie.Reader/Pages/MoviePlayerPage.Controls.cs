@@ -96,6 +96,13 @@ public sealed partial class MoviePlayerPage
             return;
         }
 
+        if (string.Equals(uri.Host, "position", StringComparison.OrdinalIgnoreCase))
+        {
+            var positionQuery = ParseQuery(uri.Query);
+            MainThread.BeginInvokeOnMainThread(() => _ = SavePlaybackPositionAsync(positionQuery));
+            return;
+        }
+
         if (!string.Equals(uri.Host, "cue", StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -104,6 +111,91 @@ public sealed partial class MoviePlayerPage
         var query = ParseQuery(uri.Query);
         query.TryGetValue("cueId", out var cueId);
         MainThread.BeginInvokeOnMainThread(() => SelectActiveCue(cueId ?? string.Empty));
+    }
+
+    private async Task SavePlaybackPositionAsync(IReadOnlyDictionary<string, string> query)
+    {
+        if (!TryReadQueryDouble(query, "position", out var position))
+        {
+            return;
+        }
+
+        TryReadQueryDouble(query, "duration", out var duration);
+        var ended = query.TryGetValue("ended", out var endedValue)
+            && string.Equals(endedValue, "1", StringComparison.Ordinal);
+        var force = query.TryGetValue("force", out var forceValue)
+            && string.Equals(forceValue, "1", StringComparison.Ordinal);
+
+        await SavePlaybackPositionAsync(position, duration, ended, force);
+    }
+
+    private async Task SavePlaybackPositionAsync(double position, double duration, bool ended, bool force)
+    {
+        if (_movie is null || !double.IsFinite(position))
+        {
+            return;
+        }
+
+        var playback = _movie.Playback ??= new PlaybackState();
+        var safeDuration = double.IsFinite(duration) && duration > 0
+            ? duration
+            : playback.DurationSeconds;
+        var safePosition = Math.Max(0d, position);
+        if (ended || (safeDuration > 0 && safePosition >= Math.Max(0d, safeDuration - 5d)))
+        {
+            safePosition = 0d;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (!force
+            && _lastPlaybackPositionSavedAt != default
+            && now - _lastPlaybackPositionSavedAt < TimeSpan.FromSeconds(5)
+            && Math.Abs(safePosition - _lastPlaybackPositionSavedSeconds) < 4d)
+        {
+            return;
+        }
+
+        playback.PositionSeconds = safePosition;
+        if (safeDuration > 0)
+        {
+            playback.DurationSeconds = safeDuration;
+        }
+
+        playback.LastWatchedAt = now;
+        _lastPlaybackPositionSavedAt = now;
+        _lastPlaybackPositionSavedSeconds = safePosition;
+
+        try
+        {
+            await _libraryService.SaveMovieAsync(_movie);
+        }
+        catch
+        {
+            // Playback position is best-effort and should not interrupt viewing.
+        }
+    }
+
+    private async Task NotifyPlayerPositionAsync()
+    {
+        try
+        {
+            await _webView.EvaluateJavaScriptAsync(
+                "window.coffeeMovieNotifyPosition && window.coffeeMovieNotifyPosition(true);");
+        }
+        catch
+        {
+            // The WebView may already be unloading.
+        }
+    }
+
+    private static bool TryReadQueryDouble(
+        IReadOnlyDictionary<string, string> query,
+        string key,
+        out double value)
+    {
+        value = 0d;
+        return query.TryGetValue(key, out var raw)
+            && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
     private void UpdatePlayerState(string? state)
@@ -231,6 +323,8 @@ public sealed partial class MoviePlayerPage
         _rewindSettingsButton.IsVisible = _isFullscreen;
         _fullscreenSubtitlePositionButton.IsVisible = _isFullscreen;
         _fullscreenSubtitleAlignmentButton.IsVisible = _isFullscreen;
+        _fullscreenRegisterCoffeeLearningButton.IsVisible = _isFullscreen
+            && _activeEnglishCue is not null;
         _fullscreenShadowingButton.IsVisible = _isFullscreen
             && _englishSubtitleSwitch.IsToggled
             && _activeEnglishCue is not null;

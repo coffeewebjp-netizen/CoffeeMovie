@@ -95,7 +95,12 @@ public partial class MainWindow
         PreviewOverlayKind Kind,
         string Text,
         string Position,
-        bool HasHighlight)
+        bool HasHighlight,
+        string? TrackId = null,
+        string? CueId = null,
+        int CueIndex = 0,
+        TimeSpan? CueStart = null,
+        bool IsCoffeeLearningRegistered = false)
     {
         public int SortPriority => Kind switch
         {
@@ -109,14 +114,17 @@ public partial class MainWindow
 
     private sealed class TagDefinitionRow
     {
-        public TagDefinitionRow(TagDefinition tag)
+        public TagDefinitionRow(TagDefinition tag, string? originalName = null)
         {
             Name = tag.Name;
+            OriginalName = originalName ?? tag.Name;
             SortOrder = tag.SortOrder;
             CreatedAt = tag.CreatedAt;
         }
 
-        public string Name { get; }
+        public string Name { get; set; }
+
+        public string OriginalName { get; }
 
         public int SortOrder { get; }
 
@@ -162,6 +170,7 @@ public partial class MainWindow
             Tags = learningState is null ? string.Empty : string.Join(", ", learningState.Tags);
             AiNote = learningState?.AiNote ?? string.Empty;
             Note = learningState?.Note ?? string.Empty;
+            CoffeeLearningStatus = IsCoffeeLearningRegistered(learningState) ? "済" : string.Empty;
             RowBackgroundBrush = rowBackgroundBrush;
         }
 
@@ -199,9 +208,13 @@ public partial class MainWindow
 
         public string Tags { get; set; }
 
-        public string AiNote { get; }
+        public string AiNote { get; set; }
 
         public string Note { get; set; }
+
+
+        public string CoffeeLearningStatus { get; }
+
 
         public System.Windows.Media.Brush RowBackgroundBrush { get; }
 

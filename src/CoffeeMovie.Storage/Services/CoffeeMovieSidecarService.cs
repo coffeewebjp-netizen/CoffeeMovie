@@ -206,6 +206,12 @@ public static class CoffeeMovieSidecarService
             builder.Append('|');
             builder.Append(state.AiNote);
             builder.Append('|');
+            builder.Append(state.CoffeeLearningRegisteredAt?.ToUnixTimeMilliseconds().ToString() ?? string.Empty);
+            builder.Append('|');
+            builder.Append(state.CoffeeLearningWordId ?? string.Empty);
+            builder.Append('|');
+            builder.Append(state.CoffeeLearningDeckId ?? string.Empty);
+            builder.Append('|');
             AppendMetric(builder, state.Listening);
             builder.Append('|');
             AppendMetric(builder, state.Shadowing);

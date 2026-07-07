@@ -26,8 +26,9 @@
                     <TextBlock Text="動画と字幕を取り込み、モバイル用のシーン情報を準備します" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" />
                 </StackPanel>
                 <WrapPanel DockPanel.Dock="Right" VerticalAlignment="Center" HorizontalAlignment="Right">
-                    <Button Content="タグ管理" Click="OnManageTagsClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                    <Button Content="&#x30BF;&#x30B0;&#x7BA1;&#x7406;" Click="OnManageTagsClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                     <Button Content="Drive設定" Click="OnConfigureDriveSyncFolderClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                    <Button Content="CoffeeLearning設定" Click="OnConfigureCoffeeLearningClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                     <Button x:Name="ImportDrivePackagesButton" Content="Driveから取り込み" Click="OnImportDrivePackagesClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                     <Button Content="動画を追加" Click="OnImportVideoClicked" />
                     <Button Content="更新" Click="OnRefreshClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
@@ -159,23 +160,32 @@
                             <TextBox x:Name="TitleTextBox" Margin="0,5,16,0" LostFocus="OnTitleLostFocus" />
                             <Grid Margin="0,8,16,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="76" />
                                     <ColumnDefinition Width="76" />
-                                    <ColumnDefinition Width="2*" />
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <TextBlock Text="作品名" Foreground="{StaticResource MutedBrush}" FontSize="12" />
+                                <TextBlock Text="&#x4F5C;&#x54C1;&#x540D;" Foreground="{StaticResource MutedBrush}" FontSize="12" />
                                 <TextBlock Grid.Column="1" Text="Season" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="8,0,0,0" />
                                 <TextBlock Grid.Column="2" Text="Episode" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="8,0,0,0" />
-                                <TextBlock Grid.Column="3" Text="動画タグ" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="8,0,0,0" />
                                 <TextBox x:Name="SeriesTitleTextBox" Grid.Row="1" Margin="0,4,0,0" LostFocus="OnMovieMetadataLostFocus" />
                                 <TextBox x:Name="SeasonNumberTextBox" Grid.Row="1" Grid.Column="1" Margin="8,4,0,0" LostFocus="OnMovieMetadataLostFocus" TextAlignment="Right" />
                                 <TextBox x:Name="EpisodeNumberTextBox" Grid.Row="1" Grid.Column="2" Margin="8,4,0,0" LostFocus="OnMovieMetadataLostFocus" TextAlignment="Right" />
-                                <TextBox x:Name="MovieTagsTextBox" Grid.Row="1" Grid.Column="3" Margin="8,4,0,0" LostFocus="OnMovieMetadataLostFocus" ToolTip="カンマ区切りで動画タグを入力" />
+                                <Button x:Name="MovieTagsButton"
+                                        Grid.Row="2"
+                                        Grid.ColumnSpan="3"
+                                        Content="&#x52D5;&#x753B;&#x30BF;&#x30B0;&#x3092;&#x9078;&#x629E;"
+                                        Click="OnSelectMovieTagsClicked"
+                                        Margin="0,8,0,0"
+                                        MinWidth="160"
+                                        HorizontalAlignment="Left"
+                                        Background="#121A26"
+                                        Foreground="White"
+                                        BorderBrush="#27364A" />
                             </Grid>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
@@ -208,6 +218,12 @@
                                     Background="#121A26"
                                     Foreground="White"
                                     BorderBrush="#27364A" />
+                            <Button x:Name="CoffeeLearningRegisterButton"
+                                    Content="単語登録"
+                                    Click="OnRegisterCoffeeLearningClicked"
+                                    Background="#5DE0D0"
+                                    Foreground="#04100F"
+                                    BorderBrush="#5DE0D0" />
                             <Button x:Name="PlayButton" Content="プレビュー再生" Click="OnPlayPreviewClicked" Background="#5DE0D0" />
                             <Button x:Name="PauseButton" Content="一時停止" Click="OnPausePreviewClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                             <Button x:Name="StopButton" Content="停止" Click="OnStopPreviewClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
@@ -272,7 +288,7 @@
                                                FontSize="15"
                                                TextAlignment="Center"
                                                TextWrapping="Wrap"
-                                               Margin="0,4,0,0" />
+                                               Margin="0,8,0,0" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -605,6 +621,7 @@
                                 <DataGridTextColumn Header="Listen" Binding="{Binding ListeningAccuracy}" Width="70" IsReadOnly="True" />
                                 <DataGridTextColumn Header="Shadow" Binding="{Binding ShadowingAccuracy}" Width="78" IsReadOnly="True" />
                                 <DataGridTextColumn Header="Tags" Binding="{Binding Tags}" Width="130" IsReadOnly="True" />
+                                <DataGridTextColumn Header="CL" Binding="{Binding CoffeeLearningStatus}" Width="42" IsReadOnly="True" />
                                 <DataGridTemplateColumn Header="タグ選択" Width="76">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
@@ -622,7 +639,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="AIメモ" Binding="{Binding AiNote}" Width="220" IsReadOnly="True" />
+                                <DataGridTextColumn Header="AI&#x30E1;&#x30E2;" Binding="{Binding AiNote, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="220" />
                                 <DataGridTextColumn Header="自分メモ" Binding="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="160" />
                             </DataGrid.Columns>
                         </DataGrid>
@@ -649,12 +666,12 @@
                                            FontSize="16"
                                            FontWeight="SemiBold"
                                            TextTrimming="CharacterEllipsis"
-                                           Margin="0,4,0,0" />
+                                           Margin="0,8,0,0" />
                                 <TextBlock x:Name="SubtitleGenerationStateTextBlock"
                                            Text="待機中"
                                            Foreground="{StaticResource MutedBrush}"
                                            FontSize="12"
-                                           Margin="0,4,0,0" />
+                                           Margin="0,8,0,0" />
                             </StackPanel>
 
                             <Grid Grid.Row="1" Margin="0,16,0,0">
@@ -667,7 +684,6 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
@@ -882,12 +898,12 @@
                                            VerticalAlignment="Center"
                                            Margin="4,0,4,0" />
                                 <ComboBox x:Name="EnglishSubtitleGenerationModeComboBox"
-                                          Width="120"
+                                          Width="210"
                                           SelectedValuePath="Tag"
                                           SelectedIndex="0"
                                           Margin="0,0,8,0">
                                     <ComboBoxItem Content="通常" Tag="normal" />
-                                    <ComboBoxItem Content="精査 x3" Tag="review" />
+                                    <ComboBoxItem Content="&#x5B9F;&#x9A13;: 3&#x56DE;&#x6BD4;&#x8F03;/&#x6B20;&#x640D;&#x88DC;&#x6B63;" Tag="review" />
                                 </ComboBox>
                                 <CheckBox x:Name="OverwriteGeneratedSubtitleCheckBox"
                                           Content="既存.en.srtを退避して再生成"
@@ -986,6 +1002,7 @@
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="108" />
                                 </Grid.ColumnDefinitions>
@@ -1014,8 +1031,15 @@
                                         Background="#121A26"
                                         Foreground="White"
                                         BorderBrush="#27364A" />
-                                <Slider x:Name="FullPreviewSeekSlider"
+                                <Button x:Name="FullPreviewCoffeeLearningRegisterButton"
                                         Grid.Column="4"
+                                        Content="単語登録"
+                                        Click="OnRegisterCoffeeLearningClicked"
+                                        Background="#5DE0D0"
+                                        Foreground="#04100F"
+                                        BorderBrush="#5DE0D0" />
+                                <Slider x:Name="FullPreviewSeekSlider"
+                                        Grid.Column="5"
                                         Minimum="0"
                                         Maximum="1"
                                         Value="0"
@@ -1027,7 +1051,7 @@
                                         KeyUp="OnFullPreviewSeekKeyUp"
                                         ValueChanged="OnFullPreviewSeekValueChanged" />
                                 <TextBlock x:Name="FullPreviewPositionTextBlock"
-                                           Grid.Column="5"
+                                           Grid.Column="6"
                                            Text="00:00 / 00:00"
                                            Foreground="{StaticResource MutedBrush}"
                                            FontSize="12"

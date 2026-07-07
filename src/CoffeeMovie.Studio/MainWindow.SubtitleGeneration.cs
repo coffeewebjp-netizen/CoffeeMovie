@@ -157,7 +157,14 @@ public partial class MainWindow
                 "review",
                 StringComparison.OrdinalIgnoreCase)
                     ? EnglishSubtitleGenerationMode.Review
-                    : EnglishSubtitleGenerationMode.Normal);
+                    : EnglishSubtitleGenerationMode.Normal,
+            movie.Title,
+            NormalizeOptionalText(TranslationCommandTextBox.Text) ?? DefaultTranslationCommand,
+            DefaultEnglishSubtitleReviewArguments,
+            DefaultEnglishSubtitleReviewPrompt,
+            NormalizeOptionalText(TranslationModelTextBox.Text) ?? DefaultCodexSparkModel,
+            DefaultTranslationCommand,
+            DefaultCodexSparkModel);
 
         return await _subtitleGenerationJobService.GenerateEnglishSubtitleAsync(
             options,

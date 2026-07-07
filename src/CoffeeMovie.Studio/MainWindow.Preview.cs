@@ -100,11 +100,17 @@ public partial class MainWindow
             }
 
             var isJapanese = IsJapaneseSubtitleTrack(line.Track);
+            var learningState = FindCueLearningState(line.Track, line.Cue);
             items.Add(new PreviewOverlayItem(
                 isJapanese ? PreviewOverlayKind.JapaneseSubtitle : PreviewOverlayKind.EnglishSubtitle,
                 text,
                 isJapanese ? _japaneseSubtitleOverlayPosition : _englishSubtitleOverlayPosition,
-                HasSubtitleTags(FindCueLearningState(line.Track, line.Cue))));
+                HasSubtitleTags(learningState),
+                line.Track.Id,
+                line.Cue.Id,
+                line.Cue.Index,
+                line.Cue.Start,
+                IsCoffeeLearningRegistered(learningState)));
         }
 
         if (_showLearningNotes && FindLearningNoteState(position, lines) is { } state)
@@ -175,25 +181,34 @@ public partial class MainWindow
             _ => isFullPreview ? 18 : 13
         };
 
+        var displayText = item.IsCoffeeLearningRegistered && item.Kind == PreviewOverlayKind.EnglishSubtitle
+            ? "[Learning] " + item.Text
+            : item.Text;
+
         var border = new Border
         {
             Background = isSubtitle
                 ? new SolidColorBrush(Color.FromArgb(0xB0, 0x00, 0x00, 0x00))
                 : new SolidColorBrush(Color.FromArgb(0xC0, 0x0B, 0x11, 0x1A)),
-            BorderBrush = item.HasHighlight
-                ? CreateBrush(_subtitleTagHighlightColor)
-                : isSubtitle ? Brushes.Transparent : new SolidColorBrush(Color.FromRgb(0x5D, 0xE0, 0xD0)),
-            BorderThickness = item.HasHighlight || !isSubtitle ? new Thickness(1) : new Thickness(0),
+            BorderBrush = item.IsCoffeeLearningRegistered
+                ? new SolidColorBrush(Color.FromRgb(0x8C, 0xE7, 0xB2))
+                : item.HasHighlight
+                    ? CreateBrush(_subtitleTagHighlightColor)
+                    : isSubtitle ? Brushes.Transparent : new SolidColorBrush(Color.FromRgb(0x5D, 0xE0, 0xD0)),
+            BorderThickness = item.IsCoffeeLearningRegistered || item.HasHighlight || !isSubtitle ? new Thickness(1) : new Thickness(0),
             CornerRadius = new CornerRadius(6),
             Padding = isFullPreview ? new Thickness(18, 10, 18, 10) : new Thickness(12, 7, 12, 7),
             Margin = new Thickness(0, 3, 0, 3),
             HorizontalAlignment = HorizontalAlignment.Stretch,
+            Tag = item,
             Child = new TextBlock
             {
-                Text = item.Text,
-                Foreground = isSubtitle
-                    ? isJapanese ? new SolidColorBrush(Color.FromRgb(0xE0, 0xE7, 0xF0)) : Brushes.White
-                    : new SolidColorBrush(Color.FromRgb(0xEA, 0xFB, 0xF8)),
+                Text = displayText,
+                Foreground = item.IsCoffeeLearningRegistered
+                    ? new SolidColorBrush(Color.FromRgb(0xD9, 0xFF, 0xE8))
+                    : isSubtitle
+                        ? isJapanese ? new SolidColorBrush(Color.FromRgb(0xE0, 0xE7, 0xF0)) : Brushes.White
+                        : new SolidColorBrush(Color.FromRgb(0xEA, 0xFB, 0xF8)),
                 FontSize = fontSize,
                 FontWeight = item.Kind == PreviewOverlayKind.EnglishSubtitle ? FontWeights.SemiBold : FontWeights.Normal,
                 TextAlignment = TextAlignment.Center,
@@ -201,7 +216,7 @@ public partial class MainWindow
             }
         };
 
-        if (isSubtitle && !isFullPreview)
+        if (isSubtitle)
         {
             border.Cursor = Cursors.Hand;
             border.MouseLeftButtonUp += OnPreviewSubtitleClicked;

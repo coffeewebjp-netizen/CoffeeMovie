@@ -27,6 +27,7 @@ public sealed partial class MoviePlayerPage : ContentPage
     private static readonly string[] SubtitleAlignments = ["center", "left", "right"];
 
     private readonly ReaderLibraryService _libraryService;
+    private readonly CoffeeLearningWordRegistrationService _coffeeLearningService;
     private readonly ISpeechRecognitionService _speechRecognitionService;
     private readonly string _movieId;
     private readonly Label _titleLabel = new()
@@ -126,6 +127,7 @@ public sealed partial class MoviePlayerPage : ContentPage
         VerticalTextAlignment = TextAlignment.Center
     };
     private readonly Button _saveLearningButton = CreateSecondaryButton("保存");
+    private readonly Button _registerCoffeeLearningButton = CreateSecondaryButton("単語登録");
     private readonly Button _shadowingButton = CreateShadowButton("音声入力", "#5DE0D0", "#04100F");
     private readonly Button _shadowOkButton = CreateShadowButton("手動OK", "#142033", "#FFFFFF");
     private readonly Button _shadowNgButton = CreateShadowButton("手動NG", "#142033", "#FFFFFF");
@@ -134,6 +136,7 @@ public sealed partial class MoviePlayerPage : ContentPage
     private readonly Button _headerSubtitleAlignmentButton = CreateSecondaryButton("字幕寄せ:中央");
     private readonly Button _exitFullscreenButton = CreateOverlayButton("戻る");
     private readonly Button _fullscreenShadowingButton = CreateOverlayButton("Shadow");
+    private readonly Button _fullscreenRegisterCoffeeLearningButton = CreateOverlayButton("単語登録");
     private readonly Button _speakOriginalButton = CreateOverlayButton("原文音声");
     private readonly Button _playPauseButton = CreateOverlayButton("一時停止");
     private readonly Button _rewindOneButton = CreateCompactOverlayButton("-1秒");
@@ -175,16 +178,21 @@ public sealed partial class MoviePlayerPage : ContentPage
     private bool _isFullscreen;
     private bool _showSpeakOriginalButton;
     private bool _isPlayerPaused = true;
+    private bool _isCoffeeLearningRegisterBusy;
+    private DateTimeOffset _lastPlaybackPositionSavedAt;
+    private double _lastPlaybackPositionSavedSeconds = -1d;
     private string _subtitlePosition = "bottom";
     private string _subtitleAlignment = "center";
     private int _customRewindSeconds = 3;
 
     public MoviePlayerPage(
         ReaderLibraryService libraryService,
+        CoffeeLearningWordRegistrationService coffeeLearningService,
         ISpeechRecognitionService speechRecognitionService,
         string movieId)
     {
         _libraryService = libraryService;
+        _coffeeLearningService = coffeeLearningService;
         _speechRecognitionService = speechRecognitionService;
         _movieId = movieId;
         Title = "Player";
@@ -202,6 +210,8 @@ public sealed partial class MoviePlayerPage : ContentPage
         _exitFullscreenButton.IsVisible = false;
         _fullscreenShadowingButton.Clicked += async (_, _) => await RunShadowingRecognitionAsync();
         _fullscreenShadowingButton.IsVisible = false;
+        _fullscreenRegisterCoffeeLearningButton.Clicked += async (_, _) => await RegisterCurrentCueInCoffeeLearningAsync();
+        _fullscreenRegisterCoffeeLearningButton.IsVisible = false;
         _speakOriginalButton.Clicked += async (_, _) => await SpeakCurrentSubtitleAsync();
         _speakOriginalButton.IsVisible = false;
         _playPauseButton.Clicked += async (_, _) => await TogglePlayPauseAsync();
@@ -217,6 +227,7 @@ public sealed partial class MoviePlayerPage : ContentPage
         _fullscreenSubtitlePositionButton.IsVisible = false;
         _fullscreenSubtitleAlignmentButton.IsVisible = false;
         _saveLearningButton.Clicked += async (_, _) => await SaveLearningAsync();
+        _registerCoffeeLearningButton.Clicked += async (_, _) => await RegisterCurrentCueInCoffeeLearningAsync();
         _shadowingButton.Clicked += async (_, _) => await RunShadowingRecognitionAsync();
         _shadowOkButton.Clicked += async (_, _) => await RecordShadowingAsync(true, null, 1d);
         _shadowNgButton.Clicked += async (_, _) => await RecordShadowingAsync(false, null, 0d);
@@ -329,6 +340,12 @@ public sealed partial class MoviePlayerPage : ContentPage
         await ReloadAsync();
     }
 
+    protected override async void OnDisappearing()
+    {
+        base.OnDisappearing();
+        await NotifyPlayerPositionAsync();
+    }
+
     protected override bool OnBackButtonPressed()
     {
         if (_isFullscreen)
@@ -368,7 +385,7 @@ public sealed partial class MoviePlayerPage : ContentPage
             Spacing = 8,
             HorizontalOptions = LayoutOptions.End,
             VerticalOptions = LayoutOptions.Start,
-            Children = { _speakOriginalButton, _fullscreenShadowingButton, _exitFullscreenButton }
+            Children = { _speakOriginalButton, _fullscreenRegisterCoffeeLearningButton, _fullscreenShadowingButton, _exitFullscreenButton }
         };
 
         var customRewindActions = new VerticalStackLayout
@@ -534,11 +551,14 @@ public sealed partial class MoviePlayerPage : ContentPage
             ColumnDefinitions =
             {
                 new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto),
                 new ColumnDefinition(GridLength.Auto)
             },
-            Children = { _learningMessageLabel, _saveLearningButton }
+            ColumnSpacing = 8,
+            Children = { _learningMessageLabel, _registerCoffeeLearningButton, _saveLearningButton }
         };
-        Grid.SetColumn(_saveLearningButton, 1);
+        Grid.SetColumn(_registerCoffeeLearningButton, 1);
+        Grid.SetColumn(_saveLearningButton, 2);
 
         var layout = new VerticalStackLayout
         {

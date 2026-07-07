@@ -21,6 +21,9 @@ public partial class MainWindow
     private readonly MovieLibraryStore _libraryStore;
     private readonly CoffeeMoviePackageService _packageService = new();
     private readonly SubtitleGenerationJobService _subtitleGenerationJobService = new();
+    private readonly CoffeeLearningWordRegistrationService _coffeeLearningService = new();
+    private readonly CoffeeLearningAiAgentScoringService _coffeeLearningAiAgentScoringService = new();
+    private readonly CoffeeLearningAiProviderScoringService _coffeeLearningAiProviderScoringService = new();
     private readonly ObservableCollection<MovieListItem> _movies = [];
     private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private MovieLibrary _currentLibrary = new();
@@ -305,7 +308,7 @@ public partial class MainWindow
                 SeriesTitleTextBox.Text = string.Empty;
                 SeasonNumberTextBox.Text = string.Empty;
                 EpisodeNumberTextBox.Text = string.Empty;
-                MovieTagsTextBox.Text = string.Empty;
+                MovieTagsButton.ToolTip = null;
                 FileNameTextBlock.Text = "動画を追加してください";
                 CachePathTextBlock.Text = string.Empty;
                 SizeTextBlock.Text = string.Empty;
@@ -322,7 +325,7 @@ public partial class MainWindow
             SeriesTitleTextBox.Text = movie.SeriesTitle ?? string.Empty;
             SeasonNumberTextBox.Text = movie.SeasonNumber?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
             EpisodeNumberTextBox.Text = movie.EpisodeNumber?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
-            MovieTagsTextBox.Text = string.Join(", ", movie.Tags);
+            MovieTagsButton.ToolTip = movie.Tags.Count == 0 ? "\u30BF\u30B0\u672A\u9078\u629E" : string.Join(", ", movie.Tags);
             FileNameTextBlock.Text = movie.Video.FileName;
             CachePathTextBlock.Text = movie.Video.CachePath ?? movie.Video.SourceUri;
             SizeTextBlock.Text = $"{FormatBytes(movie.Video.SizeBytes)} / {movie.SubtitleTracks.Count} subtitle / {movie.SceneMarkers.Count} scene";
@@ -350,13 +353,14 @@ public partial class MainWindow
         SeriesTitleTextBox.IsEnabled = enabled;
         SeasonNumberTextBox.IsEnabled = enabled;
         EpisodeNumberTextBox.IsEnabled = enabled;
-        MovieTagsTextBox.IsEnabled = enabled;
+        MovieTagsButton.IsEnabled = enabled;
         AddSubtitleButton.IsEnabled = enabled;
         RemoveSubtitleButton.IsEnabled = enabled && SubtitlesDataGrid.SelectedItem is not null;
         WriteSidecarButton.IsEnabled = enabled;
         ExportDrivePackageButton.IsEnabled = enabled;
         DualSubtitleButton.IsEnabled = enabled;
         LearningNotesButton.IsEnabled = enabled;
+        CoffeeLearningRegisterButton.IsEnabled = enabled;
         PlayButton.IsEnabled = enabled;
         PauseButton.IsEnabled = enabled;
         StopButton.IsEnabled = enabled;
@@ -367,6 +371,7 @@ public partial class MainWindow
         FullPreviewPauseButton.IsEnabled = enabled;
         FullPreviewStopButton.IsEnabled = enabled;
         FullPreviewLearningNotesButton.IsEnabled = enabled;
+        FullPreviewCoffeeLearningRegisterButton.IsEnabled = enabled;
         if (!enabled)
         {
             PreviewSeekSlider.IsEnabled = false;
@@ -669,21 +674,41 @@ public partial class MainWindow
 
     private string ResolveGenerationVideoPath(Movie movie)
     {
-        if (!string.IsNullOrWhiteSpace(movie.Video.SourceUri)
-            && File.Exists(movie.Video.SourceUri))
+        if (IsUsableVideoInputPath(movie.Video.CachePath))
         {
-            return movie.Video.SourceUri;
+            return movie.Video.CachePath!;
         }
 
-        if (!string.IsNullOrWhiteSpace(movie.Video.CachePath)
-            && File.Exists(movie.Video.CachePath))
+        if (IsUsableVideoInputPath(movie.Video.SourceUri))
         {
-            return movie.Video.CachePath;
+            return movie.Video.SourceUri!;
         }
 
-        throw new FileNotFoundException("字幕生成に使える動画ファイルが見つかりません。", movie.Video.FileName);
+        var packagePath = IsReaderPackagePath(movie.Video.SourceUri)
+            ? movie.Video.SourceUri
+            : null;
+        if (!string.IsNullOrWhiteSpace(packagePath) && File.Exists(packagePath))
+        {
+            throw new FileNotFoundException(
+                "Drive package is available, but the extracted video cache is missing. Import the package again before creating thumbnails or generating subtitles.",
+                movie.Video.FileName);
+        }
+
+        throw new FileNotFoundException("Video file for thumbnail/subtitle generation was not found.", movie.Video.FileName);
     }
 
+    private static bool IsUsableVideoInputPath(string? path)
+    {
+        return !string.IsNullOrWhiteSpace(path)
+            && File.Exists(path)
+            && !IsReaderPackagePath(path);
+    }
+
+    private static bool IsReaderPackagePath(string? path)
+    {
+        return !string.IsNullOrWhiteSpace(path)
+            && CoffeeMoviePackageService.IsReaderPackageFileName(Path.GetFileName(path));
+    }
     private static string EnsureUniquePath(string path)
     {
         if (!File.Exists(path))
@@ -837,6 +862,14 @@ public partial class MainWindow
         return elapsed.TotalHours >= 1
             ? string.Create(CultureInfo.InvariantCulture, $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}")
             : string.Create(CultureInfo.InvariantCulture, $"{elapsed.Minutes:00}:{elapsed.Seconds:00}");
+    }
+
+    private static string CollapseWhitespace(string value)
+    {
+        return string.Join(' ', value
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
     private static string NormalizePreviewSubtitleText(string text)

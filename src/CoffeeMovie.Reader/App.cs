@@ -8,17 +8,20 @@ public sealed class App : Application
     private readonly ReaderLibraryService _libraryService;
     private readonly GoogleDriveSyncService _googleDriveSyncService;
     private readonly ReaderSyncSettingsService _syncSettingsService;
+    private readonly CoffeeLearningWordRegistrationService _coffeeLearningService;
     private readonly ISpeechRecognitionService _speechRecognitionService;
 
     public App(
         ReaderLibraryService libraryService,
         GoogleDriveSyncService googleDriveSyncService,
         ReaderSyncSettingsService syncSettingsService,
+        CoffeeLearningWordRegistrationService coffeeLearningService,
         ISpeechRecognitionService speechRecognitionService)
     {
         _libraryService = libraryService;
         _googleDriveSyncService = googleDriveSyncService;
         _syncSettingsService = syncSettingsService;
+        _coffeeLearningService = coffeeLearningService;
         _speechRecognitionService = speechRecognitionService;
         UserAppTheme = AppTheme.Dark;
     }
@@ -31,6 +34,7 @@ public sealed class App : Application
                 _libraryService,
                 _googleDriveSyncService,
                 _syncSettingsService,
+                _coffeeLearningService,
                 _speechRecognitionService))
             {
                 BarBackgroundColor = Color.FromArgb("#05070B"),

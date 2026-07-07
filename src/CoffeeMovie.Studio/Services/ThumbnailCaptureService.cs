@@ -9,7 +9,22 @@ public static class ThumbnailCaptureService
     public static string GetThumbnailPath(string thumbnailCachePath, string movieId)
     {
         Directory.CreateDirectory(thumbnailCachePath);
-        return Path.Combine(thumbnailCachePath, $"{SanitizeFileName(movieId)}.jpg");
+        return GetUniqueThumbnailPath(thumbnailCachePath, SanitizeFileName(movieId));
+    }
+    private static string GetUniqueThumbnailPath(string thumbnailCachePath, string safeMovieId)
+    {
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
+        for (var index = 0; index < 100; index++)
+        {
+            var suffix = index == 0 ? timestamp : $"{timestamp}-{index}";
+            var candidate = Path.Combine(thumbnailCachePath, $"{safeMovieId}-{suffix}.jpg");
+            if (!File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(thumbnailCachePath, $"{safeMovieId}-{Guid.NewGuid():N}.jpg");
     }
 
     public static async Task CaptureAsync(string videoPath, string outputPath, TimeSpan position)
@@ -21,7 +36,7 @@ public static class ThumbnailCaptureService
             Directory.CreateDirectory(directory);
         }
 
-        var tempPath = outputPath + ".tmp.jpg";
+        var tempPath = outputPath + $".{Guid.NewGuid():N}.tmp.jpg";
         if (File.Exists(tempPath))
         {
             File.Delete(tempPath);
@@ -79,9 +94,30 @@ public static class ThumbnailCaptureService
                     : message.Trim());
         }
 
-        File.Move(tempPath, outputPath, overwrite: true);
+        try
+        {
+            File.Move(tempPath, outputPath, overwrite: false);
+        }
+        finally
+        {
+            TryDelete(tempPath);
+        }
     }
 
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best effort cleanup.
+        }
+    }
     private static string ResolveFfmpegPath()
     {
         foreach (var envName in new[] { "COFFEEMOVIE_FFMPEG_PATH", "FFMPEG_PATH" })

@@ -113,7 +113,7 @@ public partial class MainWindow
         }
 
         var seriesTitle = NormalizeOptionalText(SeriesTitleTextBox.Text);
-        var tags = ParseTags(MovieTagsTextBox.Text);
+        var tags = NormalizeTags(_selectedMovie.Tags);
         var isDirty = !string.Equals(_selectedMovie.SeriesTitle, seriesTitle, StringComparison.Ordinal)
             || _selectedMovie.SeasonNumber != seasonNumber
             || _selectedMovie.EpisodeNumber != episodeNumber
@@ -152,6 +152,55 @@ public partial class MainWindow
 
         await RefreshMoviesAsync(_selectedMovie.Id);
         SetStatus("動画の管理情報を保存しました。");
+    }
+
+    private async Task UpdateSelectedMovieTagsAsync(IEnumerable<string> tags)
+    {
+        if (_selectedMovie is null || _isUpdatingSelection)
+        {
+            return;
+        }
+
+        var normalizedTags = NormalizeTags(tags);
+        if (_selectedMovie.Tags.SequenceEqual(normalizedTags, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _selectedMovie.Tags = normalizedTags;
+        _selectedMovie.UpdatedAt = DateTimeOffset.UtcNow;
+
+        var library = await _libraryStore.LoadAsync();
+        var target = library.Movies.FirstOrDefault(movie => string.Equals(movie.Id, _selectedMovie.Id, StringComparison.Ordinal));
+        if (target is not null)
+        {
+            target.Tags = _selectedMovie.Tags.ToList();
+            target.UpdatedAt = _selectedMovie.UpdatedAt;
+            foreach (var tag in target.Tags)
+            {
+                AddTagDefinition(library, TagScope.Movie, tag);
+            }
+
+            await _libraryStore.SaveAsync(library);
+        }
+        else
+        {
+            await _libraryStore.UpsertMovieAsync(_selectedMovie);
+        }
+
+        await RefreshMoviesAsync(_selectedMovie.Id);
+        SetStatus("\u52D5\u753B\u30BF\u30B0\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F\u3002");
+    }
+
+    private static List<string> NormalizeTags(IEnumerable<string> tags)
+    {
+        var normalizedTags = new List<string>();
+        foreach (var tag in tags)
+        {
+            AddTag(normalizedTags, tag);
+        }
+
+        return normalizedTags;
     }
 
     private void OnMovieSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

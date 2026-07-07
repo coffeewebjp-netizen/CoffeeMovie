@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using CoffeeMovie.Core.Models;
@@ -17,6 +18,7 @@ public static class ReaderPlayerHtmlBuilder
         var videoUri = ToFileUri(movie.Video.CachePath);
         var safeSubtitlePosition = NormalizeSubtitlePosition(subtitlePosition);
         var safeSubtitleAlignment = NormalizeSubtitleAlignment(subtitleAlignment);
+        var resumePositionSeconds = GetSafeResumePositionSeconds(movie.Playback);
         var cueTrack = FindEnglishTrack(movie)
             ?? movie.SubtitleTracks.LastOrDefault(subtitle => subtitle.Cues.Count > 0);
         var japaneseTrack = FindJapaneseTrack(movie);
@@ -31,7 +33,8 @@ public static class ReaderPlayerHtmlBuilder
                     start = cue.Start.TotalSeconds,
                     end = cue.End.TotalSeconds,
                     text = cue.Text,
-                    memo = BuildDisplayMemo(learningState)
+                    memo = BuildDisplayMemo(learningState),
+                    registered = IsCoffeeLearningRegistered(learningState)
                 };
             }));
         var japaneseCuesJson = JsonSerializer.Serialize((japaneseTrack?.Cues ?? [])
@@ -134,6 +137,10 @@ video {
   background: rgba(9, 45, 42, 0.82);
   box-shadow: 0 0 18px rgba(93, 224, 208, 0.45);
 }
+#subtitleEn.registered {
+  outline: 2px solid #8CE7B2;
+  background: rgba(8, 43, 27, 0.86);
+}
 #subtitleJa {
   font-size: clamp(14px, 3.4vw, 24px);
   color: #F6D365;
@@ -187,6 +194,7 @@ video::-webkit-media-controls-fullscreen-button {
 <script>
 const coffeeMovieCues = {{bridgeCuesJson}};
 const coffeeMovieJapaneseCues = {{japaneseCuesJson}};
+const coffeeMovieResumePosition = {{resumePositionSeconds.ToString("0.###", CultureInfo.InvariantCulture)}};
 const player = document.getElementById('player');
 const subtitleOverlay = document.querySelector('.subtitleOverlay');
 const subtitleMemo = document.getElementById('subtitleMemo');
@@ -196,6 +204,8 @@ let showEnglishSubtitles = {{showEnglishSubtitles.ToString().ToLowerInvariant()}
 let showJapaneseSubtitles = {{showJapaneseSubtitles.ToString().ToLowerInvariant()}};
 let showMemo = {{showMemo.ToString().ToLowerInvariant()}};
 let lastCoffeeMovieCueId = null;
+let coffeeMovieResumeApplied = false;
+let lastCoffeeMoviePositionNotifyAt = 0;
 let shadowingActive = false;
 let coffeeMovieAppFullscreen = false;
 let coffeeMovieSubtitlePosition = '{{Html(safeSubtitlePosition)}}';
@@ -234,13 +244,19 @@ function coffeeMovieJoinSubtitleLines(text, compact) {
   return lines.join(compact ? '' : ' ');
 }
 
+function coffeeMovieFormatEnglishCue(cue) {
+  const text = coffeeMovieJoinSubtitleLines(cue.text, false);
+  return cue.registered ? '✓ ' + text : text;
+}
+
 function coffeeMovieRenderSubtitles() {
   const enCue = coffeeMovieCurrentCue();
   const jaCue = coffeeMovieFindCue(coffeeMovieJapaneseCues);
   coffeeMovieSetLine(subtitleMemo, showMemo && enCue ? enCue.memo : '');
-  coffeeMovieSetLine(subtitleEn, showEnglishSubtitles && enCue ? coffeeMovieJoinSubtitleLines(enCue.text, false) : '');
+  coffeeMovieSetLine(subtitleEn, showEnglishSubtitles && enCue ? coffeeMovieFormatEnglishCue(enCue) : '');
   coffeeMovieSetLine(subtitleJa, showJapaneseSubtitles && jaCue ? coffeeMovieJoinSubtitleLines(jaCue.text, true) : '');
   subtitleEn.classList.toggle('shadowing', shadowingActive && showEnglishSubtitles && !!enCue);
+  subtitleEn.classList.toggle('registered', showEnglishSubtitles && !!enCue && !!enCue.registered);
 }
 
 window.coffeeMovieSetSubtitleVisibility = function(showEnglish, showJapanese, showMemoLine) {
@@ -252,6 +268,16 @@ window.coffeeMovieSetSubtitleVisibility = function(showEnglish, showJapanese, sh
 
 window.coffeeMovieSetShadowingActive = function(active) {
   shadowingActive = !!active;
+  coffeeMovieRenderSubtitles();
+};
+
+window.coffeeMovieMarkCueRegistered = function(cueId) {
+  const cue = coffeeMovieCues.find(item => item.cueId === cueId);
+  if (!cue) {
+    return;
+  }
+
+  cue.registered = true;
   coffeeMovieRenderSubtitles();
 };
 
@@ -288,10 +314,46 @@ function coffeeMovieNotifyPlayState() {
   location.href = 'coffeemovie://playstate?state=' + (player.paused ? 'paused' : 'playing');
 }
 
+function coffeeMovieApplyResumePosition() {
+  if (coffeeMovieResumeApplied) {
+    return;
+  }
+
+  coffeeMovieResumeApplied = true;
+  const resume = Number(coffeeMovieResumePosition) || 0;
+  const duration = Number.isFinite(player.duration) ? player.duration : 0;
+  if (resume <= 1 || (duration > 0 && resume >= duration - 5)) {
+    return;
+  }
+
+  try {
+    player.currentTime = duration > 0 ? Math.min(resume, Math.max(0, duration - 2)) : resume;
+  } catch {
+  }
+}
+
+window.coffeeMovieNotifyPosition = function(force) {
+  const now = Date.now();
+  if (!force && now - lastCoffeeMoviePositionNotifyAt < 5000) {
+    return;
+  }
+
+  const position = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+  const duration = Number.isFinite(player.duration) ? player.duration : 0;
+  lastCoffeeMoviePositionNotifyAt = now;
+  location.href = 'coffeemovie://position?position=' + encodeURIComponent(position.toFixed(3))
+    + '&duration=' + encodeURIComponent(duration.toFixed(3))
+    + '&ended=' + (player.ended ? '1' : '0')
+    + '&force=' + (force ? '1' : '0');
+};
+
 window.coffeeMovieJumpTo = function(seconds) {
   player.currentTime = seconds;
   player.play();
-  setTimeout(() => coffeeMovieNotifyCue(true), 80);
+  setTimeout(() => {
+    coffeeMovieNotifyCue(true);
+    window.coffeeMovieNotifyPosition(true);
+  }, 80);
 };
 
 window.coffeeMovieTogglePlayPause = function() {
@@ -309,23 +371,41 @@ window.coffeeMovieTogglePlayPause = function() {
 window.coffeeMovieRewind = function(seconds) {
   const amount = Math.max(0, Number(seconds) || 0);
   player.currentTime = Math.max(0, (player.currentTime || 0) - amount);
-  setTimeout(() => coffeeMovieNotifyCue(true), 50);
+  setTimeout(() => {
+    coffeeMovieNotifyCue(true);
+    window.coffeeMovieNotifyPosition(true);
+  }, 50);
   return player.currentTime;
 };
 
 player.addEventListener('loadedmetadata', () => {
-  coffeeMovieNotifyCue(true);
-  setTimeout(coffeeMovieNotifyPlayState, 20);
+  coffeeMovieApplyResumePosition();
+  setTimeout(() => {
+    coffeeMovieNotifyCue(true);
+    coffeeMovieNotifyPlayState();
+  }, 40);
 });
-player.addEventListener('timeupdate', () => coffeeMovieNotifyCue(false));
-player.addEventListener('seeked', () => coffeeMovieNotifyCue(true));
+player.addEventListener('timeupdate', () => {
+  coffeeMovieNotifyCue(false);
+  window.coffeeMovieNotifyPosition(false);
+});
+player.addEventListener('seeked', () => {
+  coffeeMovieNotifyCue(true);
+  window.coffeeMovieNotifyPosition(true);
+});
 player.addEventListener('pause', () => {
   coffeeMovieNotifyCue(true);
+  window.coffeeMovieNotifyPosition(true);
   setTimeout(coffeeMovieNotifyPlayState, 20);
 });
 player.addEventListener('play', () => {
   coffeeMovieNotifyCue(true);
+  window.coffeeMovieNotifyPosition(true);
   setTimeout(coffeeMovieNotifyPlayState, 20);
+});
+player.addEventListener('ended', () => {
+  coffeeMovieNotifyCue(true);
+  window.coffeeMovieNotifyPosition(true);
 });
 player.addEventListener('click', event => {
   if (!coffeeMovieAppFullscreen || player.paused) {
@@ -408,6 +488,29 @@ player.addEventListener('click', event => {
         return track.CueLearningStates.FirstOrDefault(item =>
             string.Equals(item.CueId, cue.Id, StringComparison.Ordinal)
             || (item.CueIndex > 0 && item.CueIndex == cue.Index));
+    }
+
+    private static double GetSafeResumePositionSeconds(PlaybackState? playback)
+    {
+        if (playback is null || !double.IsFinite(playback.PositionSeconds))
+        {
+            return 0d;
+        }
+
+        var position = Math.Max(0d, playback.PositionSeconds);
+        var duration = double.IsFinite(playback.DurationSeconds) ? playback.DurationSeconds : 0d;
+        if (position <= 1d || (duration > 0 && position >= Math.Max(0d, duration - 5d)))
+        {
+            return 0d;
+        }
+
+        return duration > 0 ? Math.Min(position, Math.Max(0d, duration - 2d)) : position;
+    }
+
+    private static bool IsCoffeeLearningRegistered(SubtitleCueLearningState? state)
+    {
+        return state?.CoffeeLearningRegisteredAt is not null
+            || !string.IsNullOrWhiteSpace(state?.CoffeeLearningWordId);
     }
 
     private static string BuildDisplayMemo(SubtitleCueLearningState? state)

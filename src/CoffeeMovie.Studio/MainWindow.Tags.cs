@@ -15,18 +15,8 @@ public partial class MainWindow
         var library = await _libraryStore.LoadAsync();
         MergeTagDefinitionsFromLibrary(library);
 
-        var movieTags = new ObservableCollection<TagDefinitionRow>(
-            library.TagDefinitions
-                .Where(tag => tag.Scope == TagScope.Movie)
-                .OrderBy(tag => tag.SortOrder)
-                .ThenBy(tag => tag.Name)
-                .Select(tag => new TagDefinitionRow(tag)));
-        var subtitleTags = new ObservableCollection<TagDefinitionRow>(
-            library.TagDefinitions
-                .Where(tag => tag.Scope == TagScope.Subtitle)
-                .OrderBy(tag => tag.SortOrder)
-                .ThenBy(tag => tag.Name)
-                .Select(tag => new TagDefinitionRow(tag)));
+        var movieTags = CreateTagRows(library, TagScope.Movie);
+        var subtitleTags = CreateTagRows(library, TagScope.Subtitle);
 
         var window = CreateTagManagerWindow(movieTags, subtitleTags);
         if (window.ShowDialog() != true)
@@ -34,15 +24,12 @@ public partial class MainWindow
             return;
         }
 
-        library.TagDefinitions = movieTags
-            .Select((row, index) => row.ToDefinition(TagScope.Movie, index))
-            .Concat(subtitleTags.Select((row, index) => row.ToDefinition(TagScope.Subtitle, index)))
-            .Where(tag => !string.IsNullOrWhiteSpace(tag.Name))
-            .GroupBy(tag => (tag.Scope, NormalizedTagKey(tag.Name)))
-            .Select(group => group.First())
-            .ToList();
+        ApplyTagManagerChanges(library, TagScope.Movie, movieTags);
+        ApplyTagManagerChanges(library, TagScope.Subtitle, subtitleTags);
 
         await _libraryStore.SaveAsync(library);
+        _currentLibrary = library;
+        await RefreshMoviesAsync(_selectedMovie?.Id, forceReload: true);
         SetStatus("タグ定義を保存しました。");
     }
 
@@ -96,9 +83,15 @@ public partial class MainWindow
 
     private async void OnSelectMovieTagsClicked(object sender, RoutedEventArgs e)
     {
-        if (await SelectTagsIntoTextBoxAsync(MovieTagsTextBox, TagScope.Movie, "動画タグを選択"))
+        if (_selectedMovie is null)
         {
-            OnMovieMetadataLostFocus(sender, e);
+            return;
+        }
+
+        var temp = new TextBox { Text = string.Join(", ", _selectedMovie.Tags) };
+        if (await SelectTagsIntoTextBoxAsync(temp, TagScope.Movie, "動画タグを選択"))
+        {
+            await UpdateSelectedMovieTagsAsync(ParseTags(temp.Text));
         }
     }
 
@@ -142,7 +135,7 @@ public partial class MainWindow
 
         if (row.IsGlobalResult)
         {
-            SetStatus("動画またぎの字幕タグ検索結果は、ダブルクリックで動画を開いてからタグを編集してください。");
+            SetStatus("検索結果の字幕タグは、動画を開いてから編集してください。");
             return;
         }
 
@@ -165,11 +158,11 @@ public partial class MainWindow
     {
         if (row.IsGlobalResult)
         {
-            SetStatus("動画またぎの字幕タグ検索結果は、ダブルクリックで動画を開いてからタグを編集してください。");
+            SetStatus("検索結果の字幕タグは、動画を開いてから編集してください。");
             return;
         }
 
-        var temp = new System.Windows.Controls.TextBox { Text = row.Tags };
+        var temp = new TextBox { Text = row.Tags };
         if (!await SelectTagsIntoTextBoxAsync(temp, TagScope.Subtitle, "選択中の字幕タグを付け替え"))
         {
             return;
@@ -192,10 +185,7 @@ public partial class MainWindow
         RenderSceneRows(_previewSubtitleTrack);
     }
 
-    private async Task<bool> SelectTagsIntoTextBoxAsync(
-        System.Windows.Controls.TextBox target,
-        TagScope scope,
-        string title)
+    private async Task<bool> SelectTagsIntoTextBoxAsync(TextBox target, TagScope scope, string title)
     {
         var library = await _libraryStore.LoadAsync();
         MergeTagDefinitionsFromLibrary(library);
@@ -203,6 +193,7 @@ public partial class MainWindow
         var availableTags = library.TagDefinitions
             .Where(tag => tag.Scope == scope)
             .OrderBy(tag => tag.SortOrder)
+            .ThenBy(tag => tag.Name)
             .Select(tag => tag.Name)
             .Concat(currentTags)
             .Where(tag => !string.IsNullOrWhiteSpace(tag))
@@ -210,7 +201,7 @@ public partial class MainWindow
             .ToList();
         if (availableTags.Count == 0)
         {
-            MessageBox.Show(this, "登録済みタグがありません。先にタグ管理またはタグ入力でタグを作成してください。", title, MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "登録済みタグがありません。先にタグ管理でタグを作成してください。", title, MessageBoxButton.OK, MessageBoxImage.Information);
             return false;
         }
 
@@ -220,7 +211,7 @@ public partial class MainWindow
             {
                 Content = tag,
                 IsChecked = selectedKeys.Contains(NormalizedTagKey(tag)),
-                Foreground = System.Windows.Media.Brushes.White,
+                Foreground = Brushes.White,
                 Margin = new Thickness(0, 0, 0, 8)
             })
             .ToList();
@@ -244,8 +235,8 @@ public partial class MainWindow
             Width = 360,
             Height = Math.Min(520, Math.Max(300, SystemParameters.WorkArea.Height - 120)),
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = FindResource("PanelBrush") as System.Windows.Media.Brush,
-            Foreground = System.Windows.Media.Brushes.White
+            Background = FindResource("PanelBrush") as Brush,
+            Foreground = Brushes.White
         };
 
         var buttons = new StackPanel
@@ -254,14 +245,7 @@ public partial class MainWindow
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 12, 0, 0)
         };
-        var clearButton = new Button
-        {
-            Content = "クリア",
-            MinWidth = 72,
-            Background = System.Windows.Media.Brushes.Transparent,
-            Foreground = System.Windows.Media.Brushes.White,
-            BorderBrush = CreateBrush("#27364A")
-        };
+        var clearButton = CreateTagButton("クリア", isPrimary: false);
         clearButton.Click += (_, _) =>
         {
             foreach (var checkBox in checkBoxes)
@@ -269,16 +253,11 @@ public partial class MainWindow
                 checkBox.IsChecked = false;
             }
         };
-        var okButton = new Button { Content = "OK", MinWidth = 72 };
+        var okButton = CreateTagButton("OK", isPrimary: true);
+        okButton.IsDefault = true;
         okButton.Click += (_, _) => window.DialogResult = true;
-        var cancelButton = new Button
-        {
-            Content = "キャンセル",
-            MinWidth = 86,
-            Background = System.Windows.Media.Brushes.Transparent,
-            Foreground = System.Windows.Media.Brushes.White,
-            BorderBrush = CreateBrush("#27364A")
-        };
+        var cancelButton = CreateTagButton("キャンセル", isPrimary: false);
+        cancelButton.IsCancel = true;
         cancelButton.Click += (_, _) => window.DialogResult = false;
         buttons.Children.Add(clearButton);
         buttons.Children.Add(okButton);
@@ -390,23 +369,147 @@ public partial class MainWindow
         });
     }
 
+    private static ObservableCollection<TagDefinitionRow> CreateTagRows(MovieLibrary library, TagScope scope)
+    {
+        return new ObservableCollection<TagDefinitionRow>(
+            library.TagDefinitions
+                .Where(tag => tag.Scope == scope)
+                .OrderBy(tag => tag.SortOrder)
+                .ThenBy(tag => tag.Name)
+                .Select(tag => new TagDefinitionRow(tag)));
+    }
+
+    private void ApplyTagManagerChanges(MovieLibrary library, TagScope scope, IReadOnlyList<TagDefinitionRow> rows)
+    {
+        var originalNames = library.TagDefinitions
+            .Where(tag => tag.Scope == scope)
+            .Select(tag => tag.Name)
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var newDefinitions = rows
+            .Select((row, index) => row.ToDefinition(scope, index))
+            .Where(tag => !string.IsNullOrWhiteSpace(tag.Name))
+            .GroupBy(tag => NormalizedTagKey(tag.Name))
+            .Select(group => group.First())
+            .ToList();
+
+        var renameMap = rows
+            .Where(row => !string.IsNullOrWhiteSpace(row.OriginalName))
+            .Where(row => !string.Equals(row.OriginalName, row.Name, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(row => NormalizedTagKey(row.OriginalName))
+            .ToDictionary(group => group.Key, group => group.First().Name.Trim(), StringComparer.OrdinalIgnoreCase);
+
+        var newKeys = newDefinitions
+            .Select(tag => NormalizedTagKey(tag.Name))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var removedKeys = originalNames
+            .Select(NormalizedTagKey)
+            .Where(key => !newKeys.Contains(key))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        ApplyTagUsageChanges(library, scope, renameMap, removedKeys);
+
+        library.TagDefinitions = library.TagDefinitions
+            .Where(tag => tag.Scope != scope)
+            .Concat(newDefinitions)
+            .OrderBy(tag => tag.Scope)
+            .ThenBy(tag => tag.SortOrder)
+            .ToList();
+    }
+
+    private static void ApplyTagUsageChanges(
+        MovieLibrary library,
+        TagScope scope,
+        IReadOnlyDictionary<string, string> renameMap,
+        IReadOnlySet<string> removedKeys)
+    {
+        if (renameMap.Count == 0 && removedKeys.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var movie in library.Movies)
+        {
+            var changed = false;
+            if (scope == TagScope.Movie)
+            {
+                var updatedTags = TransformTags(movie.Tags, renameMap, removedKeys);
+                changed = !movie.Tags.SequenceEqual(updatedTags, StringComparer.OrdinalIgnoreCase);
+                movie.Tags = updatedTags;
+            }
+            else
+            {
+                foreach (var state in movie.SubtitleTracks.SelectMany(track => track.CueLearningStates))
+                {
+                    var updatedTags = TransformTags(state.Tags, renameMap, removedKeys);
+                    if (!state.Tags.SequenceEqual(updatedTags, StringComparer.OrdinalIgnoreCase))
+                    {
+                        state.Tags = updatedTags;
+                        state.IsFlagged = updatedTags.Any(tag => TagFilterService.IsFlagTag(tag, FlagTagName));
+                        state.UpdatedAt = DateTimeOffset.UtcNow;
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed)
+            {
+                movie.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+        }
+    }
+
+    private static List<string> TransformTags(
+        IEnumerable<string> tags,
+        IReadOnlyDictionary<string, string> renameMap,
+        IReadOnlySet<string> removedKeys)
+    {
+        var result = new List<string>();
+        foreach (var tag in tags)
+        {
+            var normalized = tag.Trim();
+            if (normalized.Length == 0)
+            {
+                continue;
+            }
+
+            var key = NormalizedTagKey(normalized);
+            if (renameMap.TryGetValue(key, out var renamed))
+            {
+                AddTag(result, renamed);
+                continue;
+            }
+
+            if (removedKeys.Contains(key))
+            {
+                continue;
+            }
+
+            AddTag(result, normalized);
+        }
+
+        return result;
+    }
+
     private Window CreateTagManagerWindow(
         ObservableCollection<TagDefinitionRow> movieTags,
         ObservableCollection<TagDefinitionRow> subtitleTags)
     {
-        var maxWindowHeight = Math.Max(360, SystemParameters.WorkArea.Height - 80);
+        var maxWindowHeight = Math.Max(400, SystemParameters.WorkArea.Height - 80);
         var window = new Window
         {
             Title = "タグ管理",
             Owner = this,
-            Width = 720,
-            Height = 520,
+            Width = 780,
+            Height = 560,
             MaxHeight = maxWindowHeight,
-            MinWidth = 620,
-            MinHeight = 360,
+            MinWidth = 680,
+            MinHeight = 420,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = FindResource("PanelBrush") as System.Windows.Media.Brush,
-            Foreground = System.Windows.Media.Brushes.White
+            Background = FindResource("PanelBrush") as Brush,
+            Foreground = Brushes.White
         };
 
         var movieList = CreateTagDefinitionListBox(movieTags);
@@ -441,38 +544,31 @@ public partial class MainWindow
         };
         Grid.SetRow(buttons, 1);
         Grid.SetColumnSpan(buttons, 3);
-        var saveButton = new Button { Content = "保存", MinWidth = 86 };
-        var cancelButton = new Button
-        {
-            Content = "キャンセル",
-            MinWidth = 86,
-            Background = System.Windows.Media.Brushes.Transparent,
-            Foreground = System.Windows.Media.Brushes.White,
-            BorderBrush = FindResource("BorderBrush") as System.Windows.Media.Brush
-        };
+        var saveButton = CreateTagButton("保存", isPrimary: true);
+        var cancelButton = CreateTagButton("キャンセル", isPrimary: false);
+        saveButton.IsDefault = true;
+        cancelButton.IsCancel = true;
         saveButton.Click += (_, _) => window.DialogResult = true;
         cancelButton.Click += (_, _) => window.DialogResult = false;
         buttons.Children.Add(saveButton);
         buttons.Children.Add(cancelButton);
         content.Children.Add(buttons);
 
-        window.Content = new ScrollViewer
-        {
-            Content = content,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-        };
+        window.Content = content;
         return window;
     }
 
-    private static System.Windows.Controls.ListBox CreateTagDefinitionListBox(ObservableCollection<TagDefinitionRow> tags)
+    private static ListBox CreateTagDefinitionListBox(ObservableCollection<TagDefinitionRow> tags)
     {
-        var listBox = new System.Windows.Controls.ListBox
+        var listBox = new ListBox
         {
             ItemsSource = tags,
             DisplayMemberPath = nameof(TagDefinitionRow.Name),
             Margin = new Thickness(0, 8, 0, 8),
-            MinHeight = 180
+            MinHeight = 220,
+            Background = new SolidColorBrush(Color.FromRgb(0x0B, 0x11, 0x1A)),
+            Foreground = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x27, 0x36, 0x4A))
         };
 
         ScrollViewer.SetVerticalScrollBarVisibility(listBox, ScrollBarVisibility.Auto);
@@ -483,18 +579,20 @@ public partial class MainWindow
     private FrameworkElement CreateTagScopePanel(
         string title,
         ObservableCollection<TagDefinitionRow> tags,
-        System.Windows.Controls.ListBox listBox)
+        ListBox listBox)
     {
-        var textBox = new TextBox { Margin = new Thickness(0, 0, 8, 0) };
-        var addButton = new Button { Content = "追加", MinWidth = 70 };
-        var deleteButton = new Button
+        var textBox = new TextBox
         {
-            Content = "削除",
-            MinWidth = 70,
-            Background = System.Windows.Media.Brushes.Transparent,
-            Foreground = System.Windows.Media.Brushes.White,
-            BorderBrush = FindResource("BorderBrush") as System.Windows.Media.Brush
+            Margin = new Thickness(0, 0, 8, 0),
+            Background = new SolidColorBrush(Color.FromRgb(0x11, 0x1A, 0x27)),
+            Foreground = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x27, 0x36, 0x4A))
         };
+        var addButton = CreateTagButton("追加", isPrimary: true);
+        var renameButton = CreateTagButton("編集", isPrimary: false);
+        var deleteButton = CreateTagButton("削除", isPrimary: false);
+        var upButton = CreateTagButton("上へ", isPrimary: false);
+        var downButton = CreateTagButton("下へ", isPrimary: false);
 
         addButton.Click += (_, _) =>
         {
@@ -504,16 +602,35 @@ public partial class MainWindow
                 return;
             }
 
-            tags.Add(new TagDefinitionRow(new TagDefinition { Name = tag, SortOrder = tags.Count }));
+            tags.Add(new TagDefinitionRow(new TagDefinition { Name = tag, SortOrder = tags.Count }, originalName: string.Empty));
             textBox.Text = string.Empty;
+            listBox.SelectedIndex = tags.Count - 1;
         };
+        renameButton.Click += (_, _) => RenameSelectedTag(title, tags, listBox);
         deleteButton.Click += (_, _) =>
         {
-            if (listBox.SelectedItem is TagDefinitionRow row)
+            if (listBox.SelectedItem is not TagDefinitionRow row)
             {
-                tags.Remove(row);
+                return;
             }
+
+            var result = MessageBox.Show(
+                this,
+                $"'{row.Name}' を削除します。保存すると既存の動画/字幕からもこのタグが外れます。",
+                "タグ削除",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (result != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            var index = listBox.SelectedIndex;
+            tags.Remove(row);
+            listBox.SelectedIndex = Math.Min(index, tags.Count - 1);
         };
+        upButton.Click += (_, _) => MoveSelectedTag(tags, listBox, -1);
+        downButton.Click += (_, _) => MoveSelectedTag(tags, listBox, 1);
 
         var panel = new Grid
         {
@@ -544,10 +661,71 @@ public partial class MainWindow
 
         Grid.SetRow(listBox, 2);
         panel.Children.Add(listBox);
-        Grid.SetRow(deleteButton, 3);
-        deleteButton.HorizontalAlignment = HorizontalAlignment.Right;
-        panel.Children.Add(deleteButton);
+
+        var actions = new WrapPanel
+        {
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        actions.Children.Add(renameButton);
+        actions.Children.Add(deleteButton);
+        actions.Children.Add(upButton);
+        actions.Children.Add(downButton);
+        Grid.SetRow(actions, 3);
+        panel.Children.Add(actions);
         return panel;
+    }
+
+    private void RenameSelectedTag(string title, ObservableCollection<TagDefinitionRow> tags, ListBox listBox)
+    {
+        if (listBox.SelectedItem is not TagDefinitionRow row)
+        {
+            return;
+        }
+
+        var prompt = new TextPromptWindow(title, "新しいタグ名を入力してください。", row.Name)
+        {
+            Owner = this
+        };
+        if (prompt.ShowDialog() != true || NormalizeOptionalText(prompt.Response) is not { } renamed)
+        {
+            return;
+        }
+
+        if (tags.Any(existing => !ReferenceEquals(existing, row) && string.Equals(existing.Name, renamed, StringComparison.OrdinalIgnoreCase)))
+        {
+            MessageBox.Show(this, "同じ名前のタグがすでにあります。", title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        row.Name = renamed;
+        listBox.Items.Refresh();
+    }
+
+    private static void MoveSelectedTag(ObservableCollection<TagDefinitionRow> tags, ListBox listBox, int offset)
+    {
+        var index = listBox.SelectedIndex;
+        var target = index + offset;
+        if (index < 0 || target < 0 || target >= tags.Count)
+        {
+            return;
+        }
+
+        tags.Move(index, target);
+        listBox.SelectedIndex = target;
+    }
+
+    private static Button CreateTagButton(string text, bool isPrimary)
+    {
+        return new Button
+        {
+            Content = text,
+            MinWidth = 70,
+            Height = 30,
+            Margin = new Thickness(6, 0, 0, 0),
+            Background = new SolidColorBrush(isPrimary ? Color.FromRgb(0x5D, 0xE0, 0xD0) : Color.FromRgb(0x12, 0x1A, 0x26)),
+            Foreground = new SolidColorBrush(isPrimary ? Color.FromRgb(0x04, 0x10, 0x0F) : Colors.White),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x27, 0x36, 0x4A))
+        };
     }
 
     private static List<string> ParseTags(string? text)

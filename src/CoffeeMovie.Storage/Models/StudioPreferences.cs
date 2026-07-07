@@ -20,8 +20,29 @@ public sealed class StudioPreferences
 
     public string? GoogleDriveRootPath { get; set; }
 
-    public string WhisperPythonCommand { get; set; } = "py";
+    public string? CoffeeLearningBaseUrl { get; set; }
 
+    public string? CoffeeLearningDeckId { get; set; }
+
+    public string? CoffeeLearningAuthHeader { get; set; }
+
+    public string CoffeeLearningScoringMode { get; set; } = "ai-agent";
+
+    public string? CoffeeLearningScoringAiAgentCommand { get; set; } = "codex-spark";
+
+    public string? CoffeeLearningScoringAiAgentModel { get; set; } = "gpt-5.3-codex-spark";
+
+    public string CoffeeLearningScoringAiAgentArguments { get; set; } = "exec --full-auto -C \"{workingDir}\" --skip-git-repo-check \"Read {promptFile} and write strict JSON to {outputFile}.\"";
+
+    public string? CoffeeLearningScoringProvider { get; set; } = "openai";
+
+    public string? CoffeeLearningScoringProviderBaseUrl { get; set; }
+
+    public string? CoffeeLearningScoringProviderModel { get; set; }
+
+    public string? CoffeeLearningScoringProviderApiKey { get; set; }
+
+    public string WhisperPythonCommand { get; set; } = "py";
     public string WhisperPythonArguments { get; set; } = "-3.10 -m whisperx";
 
     public string WhisperModel { get; set; } = "medium";

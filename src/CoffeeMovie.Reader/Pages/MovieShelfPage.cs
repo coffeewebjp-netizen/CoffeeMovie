@@ -14,6 +14,7 @@ public sealed partial class MovieShelfPage : ContentPage
     private readonly ReaderLibraryService _libraryService;
     private readonly GoogleDriveSyncService _googleDriveSyncService;
     private readonly ReaderSyncSettingsService _syncSettingsService;
+    private readonly CoffeeLearningWordRegistrationService _coffeeLearningService;
     private readonly ISpeechRecognitionService _speechRecognitionService;
     private readonly CollectionView _moviesView = new()
     {
@@ -83,11 +84,13 @@ public sealed partial class MovieShelfPage : ContentPage
         ReaderLibraryService libraryService,
         GoogleDriveSyncService googleDriveSyncService,
         ReaderSyncSettingsService syncSettingsService,
+        CoffeeLearningWordRegistrationService coffeeLearningService,
         ISpeechRecognitionService speechRecognitionService)
     {
         _libraryService = libraryService;
         _googleDriveSyncService = googleDriveSyncService;
         _syncSettingsService = syncSettingsService;
+        _coffeeLearningService = coffeeLearningService;
         _speechRecognitionService = speechRecognitionService;
         Title = "CoffeeMovie";
         BackgroundColor = Color.FromArgb("#05070B");
@@ -317,7 +320,7 @@ public sealed partial class MovieShelfPage : ContentPage
         {
             var movie = await _libraryService.ImportVideoAsync(result);
             await ReloadAsync();
-            await Navigation.PushAsync(new MoviePlayerPage(_libraryService, _speechRecognitionService, movie.Id));
+            await Navigation.PushAsync(new MoviePlayerPage(_libraryService, _coffeeLearningService, _speechRecognitionService, movie.Id));
         }
         catch (Exception ex)
         {
@@ -397,7 +400,7 @@ public sealed partial class MovieShelfPage : ContentPage
                 }
             }
 
-            await Navigation.PushAsync(new MoviePlayerPage(_libraryService, _speechRecognitionService, movie.Id));
+            await Navigation.PushAsync(new MoviePlayerPage(_libraryService, _coffeeLearningService, _speechRecognitionService, movie.Id));
         }
         finally
         {
@@ -411,7 +414,7 @@ public sealed partial class MovieShelfPage : ContentPage
         {
             MovieId = movie.Id,
             Title = movie.Title,
-            Detail = $"{movie.SubtitleTracks.Count} subtitle / {movie.SceneMarkers.Count} scene",
+            Detail = FormatMovieDetail(movie),
             SeriesKey = GetSeriesKey(movie),
             SeriesTitle = GetSeriesTitle(movie),
             SeasonKey = GetSeasonKey(movie),
@@ -635,6 +638,27 @@ public sealed partial class MovieShelfPage : ContentPage
             && File.Exists(movie.Video.ThumbnailPath)
             ? movie.Video.ThumbnailPath
             : null;
+    }
+
+    private static string FormatMovieDetail(Movie movie)
+    {
+        var detail = $"{movie.SubtitleTracks.Count} subtitle / {movie.SceneMarkers.Count} scene";
+        var playback = movie.Playback;
+        if (playback.PositionSeconds <= 1d
+            || (playback.DurationSeconds > 0 && playback.PositionSeconds >= Math.Max(0d, playback.DurationSeconds - 5d)))
+        {
+            return detail;
+        }
+
+        return $"{detail} / resume {FormatPlaybackTimestamp(playback.PositionSeconds)}";
+    }
+
+    private static string FormatPlaybackTimestamp(double seconds)
+    {
+        var value = TimeSpan.FromSeconds(Math.Max(0d, seconds));
+        return value.TotalHours >= 1
+            ? $"{(int)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}"
+            : $"{value.Minutes:00}:{value.Seconds:00}";
     }
 
     private static string FormatMovieSeriesDetail(Movie movie)

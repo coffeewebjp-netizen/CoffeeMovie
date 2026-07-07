@@ -76,8 +76,20 @@ Result: the planned extraction pass is complete. Future refactors should be feat
 Candidate services:
 
 - Done: `LearningNotesImportService`
+- Done: `LearningNotesJsonParser`
+- Done: `LearningNotesQualityValidator`
+- Done: `LearningNotesImportPlanner`
+- Done: `LearningNotesTextService`
 - Done: `SubtitleGenerationJobService`
+- Done: `SubtitleGenerationOptions`
 - Done: `SubtitleGenerationProcessService`
+- Done: `SubtitleGenerationPathService`
+- Done: `SubtitleGenerationCommandLineService`
+- Done: `SubtitleGenerationExternalCommandFactory`
+- Done: `SubtitleGenerationExternalProcessRunner`
+- Done: `WhisperXSubtitleRunner`
+- Done: `EnglishSubtitleReviewService`
+- Done: `SubtitleAiCommandService`
 - Done: `MovieMetadataInferenceService`
 - Done: `ThumbnailCaptureService`
 - Done: `TagFilterService`
@@ -91,11 +103,23 @@ Candidate services:
 - Done: `MainWindow.AiNotes.cs` partial boundary for sparse AI note generation, note import, focus relocation, and quality validation.
 - Done: `MovieMetadataInferenceService` for shared filename metadata inference and `Sxx Exx` display formatting across Studio and Reader.
 - Done: `ReaderLibraryService.Package.cs` partial boundary for Drive sidecar/package import, zip extraction, package/local state merge, and thumbnail payload handling.
-- Done: `LearningNotesImportService` for AI note JSON parsing, sparse-note quality validation, focus relocation planning, unresolved focus detection, and duplicate note merge.
+- Done: `LearningNotesImportService` as the stable facade used by `MainWindow.AiNotes.cs`.
+- Done: `LearningNotesJsonParser` for accepting AI note JSON arrays, `notes`, or `items` wrappers.
+- Done: `LearningNotesQualityValidator` for sparse-note quality validation, index checks, focus checks, and low-quality placeholder detection.
+- Done: `LearningNotesImportPlanner` for focus relocation planning, unresolved focus detection, and duplicate note merge.
+- Done: `LearningNotesTextService` for CEFR note normalization and diagnostic sample formatting.
 - Done: `TagFilterService` for shared tag parsing, movie shelf text/tag/subtitle-tag matching, and flag-tag matching.
 - Done: `ThumbnailCaptureService` for ffmpeg path resolution, thumbnail capture process execution, timeout handling, and thumbnail output path creation.
-- Done: `SubtitleGenerationProcessService` for external command argument splitting, prompt template replacement, Codex CLI resolution, relative path preparation, backup/freshness checks, and process command formatting.
-- Done: `SubtitleGenerationJobService` for WhisperX subtitle generation, Japanese subtitle translation, AI learning-note JSON generation, external process output pumping, and generated-file verification.
+- Done: `SubtitleGenerationProcessService` as a compatibility facade for older subtitle-generation helper calls.
+- Done: `SubtitleGenerationPathService` for relative path formatting, working-directory file copies, backup, and output freshness checks.
+- Done: `SubtitleGenerationCommandLineService` for argument-template expansion, command-line splitting, and process-command formatting.
+- Done: `SubtitleGenerationExternalCommandFactory` for external process start-info creation and Codex CLI resolution.
+- Done: `SubtitleGenerationExternalProcessRunner` for process start, stdout/stderr pumping, exit-code handling, and Studio log forwarding.
+- Done: `WhisperXSubtitleRunner` for WhisperX command construction, execution, and generated SRT path detection.
+- Done: `EnglishSubtitleReviewService` for experimental three-pass English subtitle comparison and optional AI merge fallback.
+- Done: `SubtitleAiCommandService` for AI translation and AI learning-note command construction, prompt file writing, execution, and output validation.
+- Done: `SubtitleGenerationJobService` for orchestrating English, Japanese, and AI learning-note generation jobs while delegating runner-specific work.
+- Done: `SubtitleGenerationOptions` for keeping generation option/result records out of the job orchestration service.
 - Done: `GoogleDrivePackageListingService` for Drive file listing, package/sidecar pairing, and `SyncMovieCandidate` creation while leaving OAuth/token and download behavior in the existing sync service.
 - Done: `DrivePackageDownloadService` for package/sidecar download, `.partial` resume files, retry handling, legacy cache migration, and download-state reporting.
 - Done: `GoogleDriveAuthService` for Google OAuth configuration, PKCE browser authorization, SecureStorage refresh-token persistence, access-token caching, reconnect detection, and Drive folder ID parsing.
@@ -105,7 +129,7 @@ Notes:
 - The Drive sync service was split as partial files first instead of immediately moving dependencies into new services. This keeps the Google Drive package format, resume behavior, and OAuth flow unchanged while making the next extraction step reviewable.
 - `GoogleDriveSyncService` is now a small facade over auth, listing, and download services; its public API remains stable for the shelf UI.
 - `GoogleDriveSyncService.Download.cs` is now a thin compatibility wrapper over `DrivePackageDownloadService`, preserving the existing public methods used by the shelf UI.
-- `MainWindow.SubtitleGeneration.cs` still coordinates WPF state, selected movie state, import refresh behavior, and user-facing errors, but external process work is now in `SubtitleGenerationJobService`.
+- `MainWindow.SubtitleGeneration.cs` still coordinates WPF state, selected movie state, import refresh behavior, and user-facing errors. Subtitle process work now sits behind `SubtitleGenerationJobService`, `WhisperXSubtitleRunner`, `EnglishSubtitleReviewService`, `SubtitleAiCommandService`, and `SubtitleGenerationExternalProcessRunner`.
 - Future Drive changes should preserve `restartDownload` behavior, partial `.part` resume files, and sidecar/package timestamp comparison semantics.
 
 ## Phase 4: Data Safety Features

@@ -14,6 +14,12 @@ public sealed class SubtitleCueLearningState
 
     public string? AiNote { get; set; }
 
+    public DateTimeOffset? CoffeeLearningRegisteredAt { get; set; }
+
+    public string? CoffeeLearningWordId { get; set; }
+
+    public string? CoffeeLearningDeckId { get; set; }
+
     public CuePracticeMetric Listening { get; set; } = new();
 
     public CuePracticeMetric Shadowing { get; set; } = new();

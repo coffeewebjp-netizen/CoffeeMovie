@@ -24,6 +24,8 @@ Google Drive integration is implemented around `.coffeemovie` packages and light
 
 Reader and Studio keep the loaded library as an in-memory working set for normal navigation, selection, and filtering paths. Explicit refresh, import, sync, and export operations remain the boundaries where disk and Drive work are expected.
 
+CoffeeLearning registration from Reader is documented in [docs/COFFEELEARNING_INTEGRATION.md](docs/COFFEELEARNING_INTEGRATION.md). It covers Bearer-token setup, subtitle-to-word field mapping, label transfer from movie and cue tags, registered cue state, and Android install checks.
+
 ## Run Windows Studio
 
 ```powershell

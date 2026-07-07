@@ -27,6 +27,7 @@ public static class MauiProgram
 
         builder.Services.AddSingleton<ReaderSyncSettingsService>();
         builder.Services.AddSingleton<GoogleDriveSyncService>();
+        builder.Services.AddSingleton<CoffeeLearningWordRegistrationService>();
         builder.Services.AddSingleton<ReaderLibraryService>();
 #if ANDROID
         builder.Services.AddSingleton<ISpeechRecognitionService, AndroidSpeechRecognitionService>();
