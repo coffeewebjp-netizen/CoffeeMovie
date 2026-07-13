@@ -33,6 +33,7 @@ public partial class MainWindow
     private string _subtitleTagHighlightColor = "#F6C945";
     private bool _showDualSubtitles;
     private bool _showLearningNotes;
+    private int _customPreviewSeekSeconds = DefaultCustomPreviewSeekSeconds;
     private string _englishSubtitleOverlayPosition = DefaultEnglishSubtitleOverlayPosition;
     private string _japaneseSubtitleOverlayPosition = DefaultJapaneseSubtitleOverlayPosition;
     private string _aiNoteOverlayPosition = DefaultAiNoteOverlayPosition;
@@ -75,14 +76,15 @@ public partial class MainWindow
             UpdatePreviewSeekFromPlayer();
             UpdateFullPreviewSeekFromPlayer();
             SyncPreviewPopupFromActiveSurface();
+            CaptureActivePlaybackPosition();
         };
-        PreviewSeekSlider.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler(OnPreviewSeekDragStarted));
-        PreviewSeekSlider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler(OnPreviewSeekDragCompleted));
         PreviewSeekSlider.LostMouseCapture += OnPreviewSeekLostMouseCapture;
-        FullPreviewSeekSlider.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler(OnFullPreviewSeekDragStarted));
-        FullPreviewSeekSlider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler(OnFullPreviewSeekDragCompleted));
         FullPreviewSeekSlider.LostMouseCapture += OnFullPreviewSeekLostMouseCapture;
-        Loaded += async (_, _) => await RefreshMoviesAsync();
+        Loaded += async (_, _) =>
+        {
+            UpdatePreviewAudioRouting();
+            await RefreshMoviesAsync();
+        };
         Closed += OnMainWindowClosed;
         ResetPreviewSeek();
         ResetFullPreviewSeek();
@@ -91,6 +93,7 @@ public partial class MainWindow
 
     private void OnMainWindowClosed(object? sender, EventArgs e)
     {
+        CaptureActivePlaybackPosition(force: true);
         _previewTimer.Stop();
         PreviewPlayer.Stop();
         PreviewPlayer.Source = null;
@@ -358,18 +361,34 @@ public partial class MainWindow
         RemoveSubtitleButton.IsEnabled = enabled && SubtitlesDataGrid.SelectedItem is not null;
         WriteSidecarButton.IsEnabled = enabled;
         ExportDrivePackageButton.IsEnabled = enabled;
+        ExportRoundtripButton.IsEnabled = enabled;
+        ImportRoundtripButton.IsEnabled = true;
         DualSubtitleButton.IsEnabled = enabled;
         LearningNotesButton.IsEnabled = enabled;
         CoffeeLearningRegisterButton.IsEnabled = enabled;
         PlayButton.IsEnabled = enabled;
         PauseButton.IsEnabled = enabled;
         StopButton.IsEnabled = enabled;
+        PreviewRewindOneButton.IsEnabled = enabled;
+        PreviewRewindFiveButton.IsEnabled = enabled;
+        PreviewRewindCustomButton.IsEnabled = enabled;
+        PreviewForwardOneButton.IsEnabled = enabled;
+        PreviewForwardFiveButton.IsEnabled = enabled;
+        PreviewForwardCustomButton.IsEnabled = enabled;
+        PreviewCustomSeekSecondsTextBox.IsEnabled = enabled;
         PreviewPopupButton.IsEnabled = enabled;
         CreateThumbnailButton.IsEnabled = enabled;
         PlayThumbnailClipButton.IsEnabled = enabled && _selectedMovie?.Video.ThumbnailTimestampSeconds is not null;
         FullPreviewPlayButton.IsEnabled = enabled;
         FullPreviewPauseButton.IsEnabled = enabled;
         FullPreviewStopButton.IsEnabled = enabled;
+        FullPreviewRewindOneButton.IsEnabled = enabled;
+        FullPreviewRewindFiveButton.IsEnabled = enabled;
+        FullPreviewRewindCustomButton.IsEnabled = enabled;
+        FullPreviewForwardOneButton.IsEnabled = enabled;
+        FullPreviewForwardFiveButton.IsEnabled = enabled;
+        FullPreviewForwardCustomButton.IsEnabled = enabled;
+        FullPreviewCustomSeekSecondsTextBox.IsEnabled = enabled;
         FullPreviewLearningNotesButton.IsEnabled = enabled;
         FullPreviewCoffeeLearningRegisterButton.IsEnabled = enabled;
         if (!enabled)
@@ -478,6 +497,7 @@ public partial class MainWindow
                 : library.Studio.SubtitleTagHighlightColor;
             _showDualSubtitles = library.Studio.ShowDualSubtitles;
             _showLearningNotes = library.Studio.ShowLearningNotes;
+            _customPreviewSeekSeconds = NormalizeCustomPreviewSeekSeconds(library.Studio.CustomPreviewSeekSeconds);
             _englishSubtitleOverlayPosition = NormalizeOverlayPosition(
                 library.Studio.EnglishSubtitleOverlayPosition,
                 DefaultEnglishSubtitleOverlayPosition);
@@ -546,6 +566,7 @@ public partial class MainWindow
                 DefaultLearningNotesAudienceLevel);
             UpdateDualSubtitleButton();
             UpdateLearningNotesButton();
+            UpdateCustomPreviewSeekControls();
         }
         finally
         {
@@ -559,6 +580,7 @@ public partial class MainWindow
         library.Studio.SubtitleTagHighlightColor = _subtitleTagHighlightColor;
         library.Studio.ShowDualSubtitles = _showDualSubtitles;
         library.Studio.ShowLearningNotes = _showLearningNotes;
+        library.Studio.CustomPreviewSeekSeconds = _customPreviewSeekSeconds;
         library.Studio.EnglishSubtitleOverlayPosition = _englishSubtitleOverlayPosition;
         library.Studio.JapaneseSubtitleOverlayPosition = _japaneseSubtitleOverlayPosition;
         library.Studio.AiNoteOverlayPosition = _aiNoteOverlayPosition;
@@ -624,8 +646,25 @@ public partial class MainWindow
 
     private void ShowError(string title, Exception exception)
     {
-        SetStatus(exception.Message);
-        MessageBox.Show(this, exception.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+        var message = FormatExceptionMessage(exception);
+        SetStatus(message);
+        MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+    private static string FormatExceptionMessage(Exception exception)
+    {
+        var messages = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            var message = current.Message?.Trim();
+            if (!string.IsNullOrWhiteSpace(message)
+                && !messages.Contains(message, StringComparer.Ordinal))
+            {
+                messages.Add(message);
+            }
+        }
+
+        return messages.Count == 0 ? exception.GetType().Name : string.Join(Environment.NewLine, messages);
     }
 
     private static System.Windows.Media.Brush CreateBrush(string colorText, byte alpha = 0xFF)

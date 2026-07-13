@@ -27,6 +27,7 @@ public sealed partial class MoviePlayerPage : ContentPage
     private static readonly string[] SubtitleAlignments = ["center", "left", "right"];
 
     private readonly ReaderLibraryService _libraryService;
+    private readonly GoogleDriveSyncService _googleDriveSyncService;
     private readonly CoffeeLearningWordRegistrationService _coffeeLearningService;
     private readonly ISpeechRecognitionService _speechRecognitionService;
     private readonly string _movieId;
@@ -115,6 +116,14 @@ public sealed partial class MoviePlayerPage : ContentPage
         AutoSize = EditorAutoSizeOption.Disabled,
         HeightRequest = 74
     };
+    private readonly Label _coffeeLearningMemoStatusLabel = new()
+    {
+        Text = "✓ CoffeeLearning登録済",
+        TextColor = Color.FromArgb("#5DE0D0"),
+        FontSize = 12,
+        FontAttributes = FontAttributes.Bold,
+        IsVisible = false
+    };
     private readonly Label _learningMessageLabel = new()
     {
         TextColor = Color.FromArgb("#A5B3C6"),
@@ -142,6 +151,9 @@ public sealed partial class MoviePlayerPage : ContentPage
     private readonly Button _rewindOneButton = CreateCompactOverlayButton("-1秒");
     private readonly Button _rewindFiveButton = CreateCompactOverlayButton("-5秒");
     private readonly Button _rewindCustomButton = CreateCompactOverlayButton("-3秒");
+    private readonly Button _forwardOneButton = CreateCompactOverlayButton("+1秒");
+    private readonly Button _forwardFiveButton = CreateCompactOverlayButton("+5秒");
+    private readonly Button _forwardCustomButton = CreateCompactOverlayButton("+3秒");
     private readonly Button _rewindSettingsButton = CreateCompactOverlayButton("秒設定");
     private readonly Button _fullscreenSubtitlePositionButton = CreateOverlayButton("字幕位置:下");
     private readonly Button _fullscreenSubtitleAlignmentButton = CreateOverlayButton("字幕寄せ:中央");
@@ -187,11 +199,13 @@ public sealed partial class MoviePlayerPage : ContentPage
 
     public MoviePlayerPage(
         ReaderLibraryService libraryService,
+        GoogleDriveSyncService googleDriveSyncService,
         CoffeeLearningWordRegistrationService coffeeLearningService,
         ISpeechRecognitionService speechRecognitionService,
         string movieId)
     {
         _libraryService = libraryService;
+        _googleDriveSyncService = googleDriveSyncService;
         _coffeeLearningService = coffeeLearningService;
         _speechRecognitionService = speechRecognitionService;
         _movieId = movieId;
@@ -216,12 +230,18 @@ public sealed partial class MoviePlayerPage : ContentPage
         _speakOriginalButton.IsVisible = false;
         _playPauseButton.Clicked += async (_, _) => await TogglePlayPauseAsync();
         _playPauseButton.IsVisible = false;
-        _rewindOneButton.Clicked += async (_, _) => await RewindAsync(1);
+        _rewindOneButton.Clicked += async (_, _) => await SeekRelativeAsync(-1);
         _rewindOneButton.IsVisible = false;
-        _rewindFiveButton.Clicked += async (_, _) => await RewindAsync(5);
+        _rewindFiveButton.Clicked += async (_, _) => await SeekRelativeAsync(-5);
         _rewindFiveButton.IsVisible = false;
-        _rewindCustomButton.Clicked += async (_, _) => await RewindAsync(_customRewindSeconds);
+        _rewindCustomButton.Clicked += async (_, _) => await SeekRelativeAsync(-_customRewindSeconds);
         _rewindCustomButton.IsVisible = false;
+        _forwardOneButton.Clicked += async (_, _) => await SeekRelativeAsync(1);
+        _forwardOneButton.IsVisible = false;
+        _forwardFiveButton.Clicked += async (_, _) => await SeekRelativeAsync(5);
+        _forwardFiveButton.IsVisible = false;
+        _forwardCustomButton.Clicked += async (_, _) => await SeekRelativeAsync(_customRewindSeconds);
+        _forwardCustomButton.IsVisible = false;
         _rewindSettingsButton.Clicked += async (_, _) => await EditCustomRewindSecondsAsync();
         _rewindSettingsButton.IsVisible = false;
         _fullscreenSubtitlePositionButton.IsVisible = false;
@@ -245,7 +265,7 @@ public sealed partial class MoviePlayerPage : ContentPage
         _memoSwitch.IsToggled = Preferences.Default.Get(ShowMemoPreferenceKey, true);
         _subtitlePosition = NormalizeSubtitlePosition(Preferences.Default.Get(SubtitlePositionPreferenceKey, "bottom"));
         _subtitleAlignment = NormalizeSubtitleAlignment(Preferences.Default.Get(SubtitleAlignmentPreferenceKey, "center"));
-        _customRewindSeconds = Math.Clamp(Preferences.Default.Get(CustomRewindSecondsPreferenceKey, 3), 1, 30);
+        _customRewindSeconds = Math.Clamp(Preferences.Default.Get(CustomRewindSecondsPreferenceKey, 3), 1, 9999);
         UpdateSubtitlePositionButtons();
         UpdateSubtitleAlignmentButtons();
         UpdateRewindButtonLabels();
@@ -388,18 +408,27 @@ public sealed partial class MoviePlayerPage : ContentPage
             Children = { _speakOriginalButton, _fullscreenRegisterCoffeeLearningButton, _fullscreenShadowingButton, _exitFullscreenButton }
         };
 
-        var customRewindActions = new VerticalStackLayout
-        {
-            Spacing = 4,
-            Children = { _rewindCustomButton, _rewindSettingsButton }
-        };
-
-        var rewindActions = new HorizontalStackLayout
+        var rewindRow = new HorizontalStackLayout
         {
             Spacing = 6,
             HorizontalOptions = LayoutOptions.End,
+            Children = { _rewindOneButton, _rewindFiveButton, _rewindCustomButton }
+        };
+
+        var forwardRow = new HorizontalStackLayout
+        {
+            Spacing = 6,
+            HorizontalOptions = LayoutOptions.End,
+            Children = { _forwardOneButton, _forwardFiveButton, _forwardCustomButton }
+        };
+
+        _rewindSettingsButton.HorizontalOptions = LayoutOptions.End;
+        var rewindActions = new VerticalStackLayout
+        {
+            Spacing = 4,
+            HorizontalOptions = LayoutOptions.End,
             VerticalOptions = LayoutOptions.Start,
-            Children = { _rewindOneButton, _rewindFiveButton, customRewindActions }
+            Children = { rewindRow, forwardRow, _rewindSettingsButton }
         };
 
         var overlayActions = new VerticalStackLayout
@@ -571,6 +600,7 @@ public sealed partial class MoviePlayerPage : ContentPage
                 _aiNoteLabel,
                 tagRow,
                 noteLabel,
+                _coffeeLearningMemoStatusLabel,
                 _noteEditor,
                 shadowRow,
                 saveRow

@@ -64,6 +64,7 @@ public partial class MainWindow
             ExportDrivePackageButton.IsEnabled = false;
             var progress = new Progress<CoffeeMoviePackageExportProgress>(SetPackageExportProgress);
             var result = await _packageService.ExportReaderPackageAsync(_selectedMovie, driveRootPath, progress);
+            await PublishCoffeeLearningRegistrationStateAsync(driveRootPath: driveRootPath);
             if (result.Skipped)
             {
                 SetStatus(
@@ -83,6 +84,82 @@ public partial class MainWindow
         finally
         {
             ExportDrivePackageButton.IsEnabled = _selectedMovie is not null;
+        }
+    }
+
+    private async void OnExportAllDrivePackagesClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var driveRootPath = await GetOrChooseDriveRootPathAsync();
+            if (string.IsNullOrWhiteSpace(driveRootPath))
+            {
+                return;
+            }
+
+            var movies = _currentLibrary.Movies
+                .OrderBy(movie => movie.Title, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+            if (movies.Count == 0)
+            {
+                SetStatus("Driveへ反映する動画がありません。");
+                return;
+            }
+
+            ExportAllDrivePackagesButton.IsEnabled = false;
+            ExportDrivePackageButton.IsEnabled = false;
+            ImportDrivePackagesButton.IsEnabled = false;
+
+            var metadataUpdated = 0;
+            var packageUpdated = 0;
+            var unchanged = 0;
+            var failed = 0;
+            for (var index = 0; index < movies.Count; index++)
+            {
+                var movie = movies[index];
+                SetStatus($"Driveへ反映中: {index + 1} / {movies.Count} ({movie.Title})");
+                try
+                {
+                    var movieIndex = index + 1;
+                    var progress = new Progress<CoffeeMoviePackageExportProgress>(value =>
+                    {
+                        SetPackageExportProgress(value);
+                        StatusTextBlock.Text = $"Driveへ反映中: {movieIndex} / {movies.Count} ({movie.Title}) - {value.Stage}";
+                    });
+                    var result = await _packageService.ExportReaderMetadataAsync(movie, driveRootPath, progress);
+                    if (result.Skipped)
+                    {
+                        unchanged++;
+                    }
+                    else if (result.MetadataOnly)
+                    {
+                        metadataUpdated++;
+                    }
+                    else
+                    {
+                        packageUpdated++;
+                    }
+                }
+                catch
+                {
+                    failed++;
+                }
+            }
+
+            await PublishCoffeeLearningRegistrationStateAsync(driveRootPath: driveRootPath);
+            SetStatus(
+                $"Drive全件反映完了: メタデータ更新 {metadataUpdated} / 動画更新 {packageUpdated} / 差分なし {unchanged} / 失敗 {failed}",
+                hideProgress: false);
+        }
+        catch (Exception ex)
+        {
+            ShowError("Driveへの全件反映に失敗しました", ex);
+        }
+        finally
+        {
+            ExportAllDrivePackagesButton.IsEnabled = true;
+            ExportDrivePackageButton.IsEnabled = _selectedMovie is not null;
+            ImportDrivePackagesButton.IsEnabled = true;
         }
     }
 
@@ -110,11 +187,6 @@ public partial class MainWindow
                 .Where(path => CoffeeMoviePackageService.IsReaderPackageFileName(Path.GetFileName(path)))
                 .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            if (packagePaths.Count == 0)
-            {
-                SetStatus("Drive同期フォルダに CoffeeMovie パッケージがありません。");
-                return;
-            }
 
             ImportDrivePackagesButton.IsEnabled = false;
             var library = await _libraryStore.LoadAsync();
@@ -158,7 +230,8 @@ public partial class MainWindow
                         packageName,
                         new DateTimeOffset(packageInfo.LastWriteTimeUtc).ToUnixTimeMilliseconds(),
                         packageInfo.Length,
-                        maxSceneMarkers: 1000);
+                        maxSceneMarkers: 1000,
+                        authoritativeSidecar: manifest);
                     ApplyDriveFileSourceMetadata(movie, packageInfo, sidecarInfo);
 
                     AddOrUpdateImportedMovie(library, movie);
@@ -179,10 +252,12 @@ public partial class MainWindow
                 }
             }
 
+            var learningSyncResult = await ImportCoffeeLearningRegistrationStateAsync(library, driveRootPath);
             MergeTagDefinitionsFromLibrary(library);
             await _libraryStore.SaveAsync(library);
+            await PublishCoffeeLearningRegistrationStateAsync(library, driveRootPath);
             await RefreshMoviesAsync(selectedMovieId);
-            SetStatus($"Drive取り込み完了: 追加 {imported} / 更新 {updated} / 変更なし {unchanged} / 失敗 {failed}");
+            SetStatus($"Drive取り込み完了: 追加 {imported} / 更新 {updated} / 変更なし {unchanged} / 失敗 {failed} / CL登録 {learningSyncResult.CuesChanged}");
         }
         catch (Exception ex)
         {

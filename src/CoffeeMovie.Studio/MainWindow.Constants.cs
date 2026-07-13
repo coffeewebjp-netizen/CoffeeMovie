@@ -13,6 +13,9 @@ public partial class MainWindow
     private const string DefaultAiNoteOverlayPosition = "above1";
     private const string DefaultUserNoteOverlayPosition = "above2";
     private const string DefaultLearningNotesAudienceLevel = "B1";
+    private const int DefaultCustomPreviewSeekSeconds = 3;
+    private const int MinimumCustomPreviewSeekSeconds = 1;
+    private const int MaximumCustomPreviewSeekSeconds = 9999;
     private const string DefaultTranslationArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{inputDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, translate {input}, and write the Japanese SRT to {output}.\"";
     private const string DefaultLearningNotesArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{inputDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, analyze {input}, and write sparse learning notes JSON to {notesOutput}. Do not generate the JSON with a PowerShell/Python classification script.\"";
     private const string DefaultEnglishSubtitleReviewArguments = "exec --full-auto -C \"{outputDir}\" --add-dir \"{reviewDir}\" --skip-git-repo-check \"You are codex-spark for CoffeeMovie. Read the prompt file at {promptFile}, compare {review1}, {review2}, and {review3}, then write the final English SRT to {output}.\"";

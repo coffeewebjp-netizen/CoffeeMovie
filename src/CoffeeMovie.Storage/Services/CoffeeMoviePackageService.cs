@@ -177,6 +177,81 @@ public sealed class CoffeeMoviePackageService
         };
     }
 
+    public async Task<CoffeeMoviePackageExportResult> ExportReaderMetadataAsync(
+        Movie movie,
+        string outputDirectory,
+        IProgress<CoffeeMoviePackageExportProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        Directory.CreateDirectory(outputDirectory);
+        var shortMovieId = GetShortMovieId(movie.Id);
+        var expectedPackagePath = Path.Combine(
+            outputDirectory,
+            $"{CreateSafeFileName(movie.Title)}_{shortMovieId}{PackageExtension}");
+        var packagePath = File.Exists(expectedPackagePath)
+            ? expectedPackagePath
+            : Directory.EnumerateFiles(outputDirectory, $"*{PackageExtension}", SearchOption.TopDirectoryOnly)
+                .FirstOrDefault(path => Path.GetFileName(path).EndsWith(
+                    $"_{shortMovieId}{PackageExtension}",
+                    StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(packagePath) || !File.Exists(packagePath))
+        {
+            return await ExportReaderPackageAsync(movie, outputDirectory, progress, cancellationToken);
+        }
+
+        var packageManifest = await ReadReaderPackageManifestAsync(packagePath, cancellationToken);
+        if (!IsSameVideoAsset(movie.Video, packageManifest.Video))
+        {
+            return await ExportReaderPackageAsync(movie, outputDirectory, progress, cancellationToken);
+        }
+
+        var packageInfo = new FileInfo(packagePath);
+        var sidecarPath = GetReaderPackageSidecarPath(packagePath);
+        var sidecar = CoffeeMovieSidecarService.Create(
+            movie,
+            packageInfo.Name,
+            packageInfo.Length);
+        sidecar.PackageType = "reader-sidecar";
+        CopyPackageEntryPaths(sidecar, packageManifest);
+
+        var existingSidecar = await TryReadSidecarAsync(sidecarPath, cancellationToken);
+        if (existingSidecar is not null
+            && string.Equals(existingSidecar.ContentFingerprint, sidecar.ContentFingerprint, StringComparison.Ordinal)
+            && HasCurrentThumbnailPayload(existingSidecar, sidecar))
+        {
+            ReportProgress(progress, "差分なし", 1, 1);
+            return new CoffeeMoviePackageExportResult(
+                packagePath,
+                packageInfo.Length,
+                sidecarPath,
+                movie.Id,
+                shortMovieId,
+                movie.Title)
+            {
+                Skipped = true,
+                MetadataOnly = true,
+                ContentFingerprint = sidecar.ContentFingerprint,
+                ExportedAt = existingSidecar.ExportedAt
+            };
+        }
+
+        ReportProgress(progress, "メタデータを更新中", 0, 1);
+        await WriteReaderPackageSidecarAsync(sidecarPath, sidecar, cancellationToken);
+        ReportProgress(progress, "メタデータ更新完了", 1, 1);
+        return new CoffeeMoviePackageExportResult(
+            packagePath,
+            packageInfo.Length,
+            sidecarPath,
+            movie.Id,
+            shortMovieId,
+            movie.Title)
+        {
+            MetadataOnly = true,
+            ContentFingerprint = sidecar.ContentFingerprint,
+            ExportedAt = sidecar.ExportedAt
+        };
+    }
+
     public async Task<CoffeeMovieSidecar> ReadReaderPackageSidecarAsync(
         string sidecarPath,
         CancellationToken cancellationToken = default)
@@ -231,11 +306,13 @@ public sealed class CoffeeMoviePackageService
         long? sourcePackageLastModified = null,
         long? sourcePackageSize = null,
         int maxSceneMarkers = 300,
+        CoffeeMovieSidecar? authoritativeSidecar = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(paths);
 
-        var manifest = await ReadReaderPackageManifestAsync(packagePath, cancellationToken);
+        var packageManifest = await ReadReaderPackageManifestAsync(packagePath, cancellationToken);
+        var metadata = authoritativeSidecar ?? packageManifest;
         var packageInfo = new FileInfo(packagePath);
         var packageUri = string.IsNullOrWhiteSpace(sourcePackageUri) ? packagePath : sourcePackageUri;
         var packageName = string.IsNullOrWhiteSpace(sourcePackageName) ? Path.GetFileName(packagePath) : sourcePackageName;
@@ -244,15 +321,15 @@ public sealed class CoffeeMoviePackageService
         var packageSize = sourcePackageSize ?? packageInfo.Length;
 
         var movie = CreateMovieFromSidecar(
-            manifest,
+            metadata,
             existing,
             packageUri,
             packageName,
             packageLastModified,
             packageSize);
 
-        await ExtractPackageFilesAsync(packagePath, paths, manifest, movie, cancellationToken);
-        await ApplySidecarThumbnailAsync(paths, movie, manifest, cancellationToken);
+        await ExtractPackageFilesAsync(packagePath, paths, packageManifest, movie, cancellationToken);
+        await ApplySidecarThumbnailAsync(paths, movie, metadata, cancellationToken);
         movie.Video.SourceKind = VideoSourceKind.GoogleDrive;
         movie.Video.SourceUri = packageUri;
         movie.Video.SourceKey = packageUri;
@@ -260,8 +337,8 @@ public sealed class CoffeeMoviePackageService
         movie.SourcePackageName = packageName;
         movie.SourcePackageLastModified = packageLastModified;
         movie.SourcePackageSize = packageSize;
-        movie.SourceMovieUpdatedAt = manifest.Movie.UpdatedAt;
-        movie.SourceContentFingerprint = manifest.ContentFingerprint;
+        movie.SourceMovieUpdatedAt = metadata.Movie.UpdatedAt;
+        movie.SourceContentFingerprint = metadata.ContentFingerprint;
         RefreshMovieSceneMarkers(movie, maxSceneMarkers);
         return movie;
     }
@@ -388,6 +465,33 @@ public sealed class CoffeeMoviePackageService
         return $"thumbnails/{fileName}";
     }
 
+    private static bool IsSameVideoAsset(VideoAsset video, CoffeeMovieSidecarVideo packagedVideo)
+    {
+        if (!string.IsNullOrWhiteSpace(video.ContentFingerprint)
+            || !string.IsNullOrWhiteSpace(packagedVideo.ContentFingerprint))
+        {
+            return string.Equals(video.ContentFingerprint, packagedVideo.ContentFingerprint, StringComparison.Ordinal);
+        }
+
+        return string.Equals(video.FileName, packagedVideo.FileName, StringComparison.OrdinalIgnoreCase)
+            && video.SizeBytes == packagedVideo.SizeBytes
+            && Nullable.Equals(video.ModifiedAt, packagedVideo.ModifiedAt);
+    }
+
+    private static void CopyPackageEntryPaths(CoffeeMovieSidecar target, CoffeeMovieSidecar packageManifest)
+    {
+        target.Video.PackagePath = packageManifest.Video.PackagePath;
+        target.Video.ThumbnailPackagePath = packageManifest.Video.ThumbnailPackagePath;
+        foreach (var subtitle in target.Subtitles)
+        {
+            var packagedSubtitle = packageManifest.Subtitles.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, subtitle.Id, StringComparison.Ordinal))
+                ?? packageManifest.Subtitles.FirstOrDefault(candidate =>
+                    string.Equals(candidate.SourceFileName, subtitle.SourceFileName, StringComparison.OrdinalIgnoreCase));
+            subtitle.PackagePath = packagedSubtitle?.PackagePath;
+            subtitle.VttPackagePath = packagedSubtitle?.VttPackagePath;
+        }
+    }
     private static bool HasCurrentThumbnailPayload(CoffeeMovieSidecar existingSidecar, CoffeeMovieSidecar manifest)
     {
         if (string.IsNullOrWhiteSpace(manifest.Video.ThumbnailFileName))
@@ -710,6 +814,7 @@ public sealed class CoffeeMoviePackageService
             package.IsFlagged = package.IsFlagged || local.IsFlagged;
             package.Note = ChooseLocalText(package.Note, local.Note, package.UpdatedAt, local.UpdatedAt);
             package.AiNote = string.IsNullOrWhiteSpace(package.AiNote) ? local.AiNote : package.AiNote;
+            MergeCoffeeLearningRegistration(package, local);
             package.Listening = ChooseMetric(package.Listening, local.Listening);
             package.Shadowing = ChooseMetric(package.Shadowing, local.Shadowing);
             package.UpdatedAt = package.UpdatedAt >= local.UpdatedAt ? package.UpdatedAt : local.UpdatedAt;
@@ -718,6 +823,30 @@ public sealed class CoffeeMoviePackageService
         return merged.Values
             .OrderBy(state => state.CueIndex)
             .ToList();
+    }
+
+    private static void MergeCoffeeLearningRegistration(
+        SubtitleCueLearningState target,
+        SubtitleCueLearningState candidate)
+    {
+        var useCandidate = candidate.CoffeeLearningRegisteredAt is not null
+            && (target.CoffeeLearningRegisteredAt is null
+                || candidate.CoffeeLearningRegisteredAt > target.CoffeeLearningRegisteredAt);
+        if (useCandidate)
+        {
+            target.CoffeeLearningRegisteredAt = candidate.CoffeeLearningRegisteredAt;
+            target.CoffeeLearningWordId = candidate.CoffeeLearningWordId;
+            target.CoffeeLearningDeckId = candidate.CoffeeLearningDeckId;
+            return;
+        }
+
+        target.CoffeeLearningRegisteredAt ??= candidate.CoffeeLearningRegisteredAt;
+        target.CoffeeLearningWordId = string.IsNullOrWhiteSpace(target.CoffeeLearningWordId)
+            ? candidate.CoffeeLearningWordId
+            : target.CoffeeLearningWordId;
+        target.CoffeeLearningDeckId = string.IsNullOrWhiteSpace(target.CoffeeLearningDeckId)
+            ? candidate.CoffeeLearningDeckId
+            : target.CoffeeLearningDeckId;
     }
 
     private static string GetLearningStateKey(SubtitleCueLearningState state)

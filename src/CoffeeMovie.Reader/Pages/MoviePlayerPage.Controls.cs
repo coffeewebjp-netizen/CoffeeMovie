@@ -261,13 +261,18 @@ public sealed partial class MoviePlayerPage
         }
     }
 
-    private async Task RewindAsync(int seconds)
+    private async Task SeekRelativeAsync(int seconds)
     {
-        var safeSeconds = Math.Clamp(seconds, 1, 30);
+        var safeSeconds = Math.Clamp(seconds, -9999, 9999);
+        if (safeSeconds == 0)
+        {
+            return;
+        }
+
         try
         {
             await _webView.EvaluateJavaScriptAsync(
-                $"window.coffeeMovieRewind && window.coffeeMovieRewind({safeSeconds.ToString(CultureInfo.InvariantCulture)});");
+                $"window.coffeeMovieSeekRelative && window.coffeeMovieSeekRelative({safeSeconds.ToString(CultureInfo.InvariantCulture)});");
         }
         catch
         {
@@ -278,12 +283,12 @@ public sealed partial class MoviePlayerPage
     private async Task EditCustomRewindSecondsAsync()
     {
         var result = await DisplayPromptAsync(
-            "戻る秒数",
-            "カスタム戻し秒数を 1-30 秒で指定します。",
+            "カスタム秒数",
+            "戻し／早送りに使う秒数を 1-9999 秒で指定します。",
             "保存",
             "キャンセル",
             "3",
-            maxLength: 2,
+            maxLength: 4,
             keyboard: Keyboard.Numeric,
             initialValue: _customRewindSeconds.ToString(CultureInfo.InvariantCulture));
         if (string.IsNullOrWhiteSpace(result))
@@ -293,11 +298,11 @@ public sealed partial class MoviePlayerPage
 
         if (!int.TryParse(result.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds))
         {
-            await DisplayAlertAsync("戻る秒数", "数字で入力してください。", "閉じる");
+            await DisplayAlertAsync("カスタム秒数", "1～9999の数字で入力してください。", "閉じる");
             return;
         }
 
-        _customRewindSeconds = Math.Clamp(seconds, 1, 30);
+        _customRewindSeconds = Math.Clamp(seconds, 1, 9999);
         Preferences.Default.Set(CustomRewindSecondsPreferenceKey, _customRewindSeconds);
         UpdateRewindButtonLabels();
     }
@@ -310,6 +315,7 @@ public sealed partial class MoviePlayerPage
     private void UpdateRewindButtonLabels()
     {
         _rewindCustomButton.Text = $"-{_customRewindSeconds}秒";
+        _forwardCustomButton.Text = $"+{_customRewindSeconds}秒";
     }
 
     private void UpdateFullscreenOverlayControls()
@@ -320,6 +326,9 @@ public sealed partial class MoviePlayerPage
         _rewindOneButton.IsVisible = _isFullscreen;
         _rewindFiveButton.IsVisible = _isFullscreen;
         _rewindCustomButton.IsVisible = _isFullscreen;
+        _forwardOneButton.IsVisible = _isFullscreen;
+        _forwardFiveButton.IsVisible = _isFullscreen;
+        _forwardCustomButton.IsVisible = _isFullscreen;
         _rewindSettingsButton.IsVisible = _isFullscreen;
         _fullscreenSubtitlePositionButton.IsVisible = _isFullscreen;
         _fullscreenSubtitleAlignmentButton.IsVisible = _isFullscreen;

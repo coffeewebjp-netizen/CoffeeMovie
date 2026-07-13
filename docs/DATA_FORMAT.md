@@ -242,9 +242,11 @@ The `.coffeemovie` manifest has `packageType: "reader"` and the same metadata, p
 Studio export behavior:
 
 1. Compute the new `contentFingerprint`.
-2. Read the existing sidecar from the configured Drive sync folder when it exists.
-3. If the existing sidecar fingerprint, thumbnail payload, and package file match, skip writing both files.
-4. If the fingerprint differs, write a new package and sidecar and update `exportedAt`.
+2. Read the existing sidecar and packaged manifest when they exist.
+3. If the existing sidecar fingerprint and thumbnail payload match, skip writing both files.
+4. If the package is missing or the video identity differs from the packaged manifest, write a new package and sidecar.
+5. If only tags, notes, thumbnails, subtitle cues, or other metadata differ, keep the package bytes untouched and rewrite only the sidecar.
+6. The explicit single-movie full export still rebuilds the package when the user requests it.
 
 Reader sync behavior:
 
@@ -253,6 +255,7 @@ Reader sync behavior:
 3. If sidecar `contentFingerprint` equals local `SourceContentFingerprint`, count it as unchanged.
 4. If it differs, update the local movie shell and mark it as added/updated.
 5. Keep the existing video cache only when the incoming video metadata describes the same video asset.
+6. Treat the downloaded sidecar as authoritative; extracting an older package later must not replace newer sidecar metadata or its fingerprint.
 
 ## Reader Learning-State Backup
 
@@ -274,3 +277,41 @@ Import matching order is:
 3. `sourcePackageUri`
 
 When importing, Reader merges tags and cue states instead of replacing the whole movie. Notes prefer the newer `updatedAt`; practice metrics prefer the higher attempt count. This makes an older backup less likely to erase newer local practice data.
+
+## Studio Roundtrip Export
+
+Studio roundtrip export is a human-editable folder format for one movie. It is separate from Drive `.coffeemovie` packages and is intended for bulk editing on PC.
+
+```text
+<chosen-folder>/
+  manifest.json
+  notes.csv
+  subtitles/
+    01.learningtarget.en.English.<trackid>.srt
+    02.translation.ja.Japanese.<trackid>.srt
+```
+
+`manifest.json` stores the format version, movie identity, title/series metadata, and subtitle track identity plus relative subtitle file paths. Import requires the target `movieId` to exist in the Studio library.
+
+`subtitles/*.srt` is the source of subtitle text/timing edits during import. Existing cue IDs are preserved when cue indexes match so AI notes, tags, practice metrics, and CoffeeLearning registration state remain attached.
+
+`notes.csv` is UTF-8 with BOM for spreadsheet compatibility. It contains these columns:
+
+```csv
+movieId,movieTitle,trackId,trackLabel,trackRole,trackLanguage,cueId,cueIndex,start,end,text,aiNote,userNote,tags,isFlagged,coffeeLearningRegisteredAt,coffeeLearningWordId,coffeeLearningDeckId
+```
+
+During import, `aiNote`, `userNote`, `tags`, `isFlagged`, and CoffeeLearning columns are applied back to cue learning state. The `text`, `start`, and `end` columns are reference columns; edit the SRT files for subtitle text/timing changes.
+
+## CoffeeLearning Registration Sync
+
+CoffeeLearning registration state is exchanged through one snapshot per device:
+
+```text
+coffeemovie-coffeelearning-registration-studio-<machine>.json
+coffeemovie-coffeelearning-registration-reader-<device>.json
+```
+
+Each snapshot contains only movie/track/cue identity plus `registeredAt`, `wordId`, `deckId`, and `updatedAt`. AI notes and user notes remain separate fields and are not overwritten by this registration-only merge.
+
+Registration merge is monotonic: an incoming registered cue can mark an unregistered cue as registered, fill missing CoffeeLearning IDs, or advance the registration timestamp. An empty or older snapshot cannot clear an existing registration. Studio reads all snapshots from its configured Drive folder; Reader reads all snapshots and writes its own through the Google Drive API during sync and after a successful mobile registration.

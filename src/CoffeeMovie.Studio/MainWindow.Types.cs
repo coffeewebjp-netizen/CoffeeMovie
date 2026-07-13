@@ -170,7 +170,7 @@ public partial class MainWindow
             Tags = learningState is null ? string.Empty : string.Join(", ", learningState.Tags);
             AiNote = learningState?.AiNote ?? string.Empty;
             Note = learningState?.Note ?? string.Empty;
-            CoffeeLearningStatus = IsCoffeeLearningRegistered(learningState) ? "済" : string.Empty;
+            CoffeeLearningStatus = IsCoffeeLearningRegistered(learningState) ? "登録済" : string.Empty;
             RowBackgroundBrush = rowBackgroundBrush;
         }
 

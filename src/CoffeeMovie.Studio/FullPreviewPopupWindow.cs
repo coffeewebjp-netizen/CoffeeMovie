@@ -36,7 +36,8 @@ internal sealed class FullPreviewPopupWindow : Window
             UnloadedBehavior = MediaState.Manual,
             ScrubbingEnabled = true,
             Stretch = Stretch.Uniform,
-            IsMuted = true
+            IsMuted = false,
+            Volume = 1d
         };
         _player.MediaOpened += OnMediaOpened;
         _player.MediaEnded += (_, _) =>
@@ -66,6 +67,11 @@ internal sealed class FullPreviewPopupWindow : Window
     public StackPanel AboveOverlayPanel { get; }
 
     public StackPanel BelowOverlayPanel { get; }
+
+    public void SetMuted(bool muted)
+    {
+        _player.IsMuted = muted;
+    }
 
     public void Sync(string videoPath, TimeSpan position, bool shouldPlay, bool forceSeek = false)
     {

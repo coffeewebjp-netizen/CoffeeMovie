@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -82,7 +83,8 @@ public partial class MainWindow
     private void OnPlayPreviewClicked(object sender, RoutedEventArgs e)
     {
         _previewStopAt = null;
-        StartPreview();
+        _previewStallRecoveryCount = 0;
+        ReloadPreviewMedia(TimeSpan.Zero, shouldPlay: true, "最初から再生します...");
     }
 
     private void OnPausePreviewClicked(object sender, RoutedEventArgs e)
@@ -92,15 +94,96 @@ public partial class MainWindow
 
     private void OnStopPreviewClicked(object sender, RoutedEventArgs e)
     {
+        CaptureActivePlaybackPosition(force: true);
         _previewTimer.Stop();
         _playPreviewWhenMediaOpened = false;
         _isPreviewPlaying = false;
         _previewStopAt = null;
+        _previewSeekConfirmationTarget = null;
+        _isRecoveringPreviewMedia = false;
+        _isPreviewAudioSuppressed = false;
+        UpdatePreviewAudioRouting();
         PreviewPlayer.Stop();
         SetPreviewSeek(TimeSpan.Zero);
         HidePreviewSubtitle();
         UpdatePlaybackButtonContent();
         SetStatus("プレビューを停止しました。");
+    }
+
+    private void OnPreviewSeekOffsetClicked(object sender, RoutedEventArgs e)
+    {
+        if (TryGetPreviewSeekOffset(sender, out var offsetSeconds))
+        {
+            SeekPreviewBySeconds(offsetSeconds);
+        }
+    }
+
+    private void OnFullPreviewSeekOffsetClicked(object sender, RoutedEventArgs e)
+    {
+        if (TryGetPreviewSeekOffset(sender, out var offsetSeconds))
+        {
+            SeekFullPreviewBySeconds(offsetSeconds);
+        }
+    }
+
+    private async void OnCustomPreviewSeekSecondsLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox textBox)
+        {
+            await SaveCustomPreviewSeekSecondsAsync(textBox.Text);
+        }
+    }
+
+    private async void OnCustomPreviewSeekSecondsKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || sender is not TextBox textBox)
+        {
+            return;
+        }
+
+        await SaveCustomPreviewSeekSecondsAsync(textBox.Text);
+        e.Handled = true;
+    }
+
+    private async Task SaveCustomPreviewSeekSecondsAsync(string? value)
+    {
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds))
+        {
+            UpdateCustomPreviewSeekControls();
+            SetStatus("\u30AB\u30B9\u30BF\u30E0\u79D2\u306F1\u301C9999\u306E\u6574\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+            return;
+        }
+
+        var normalized = NormalizeCustomPreviewSeekSeconds(seconds);
+        var changed = _customPreviewSeekSeconds != normalized;
+        _customPreviewSeekSeconds = normalized;
+        UpdateCustomPreviewSeekControls();
+        if (changed)
+        {
+            await SaveStudioPreferencesAsync();
+        }
+    }
+
+    private bool TryGetPreviewSeekOffset(object sender, out int offsetSeconds)
+    {
+        offsetSeconds = 0;
+        if (sender is not FrameworkElement { Tag: string value }
+            || !int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var multiplier))
+        {
+            return false;
+        }
+
+        offsetSeconds = multiplier switch
+        {
+            -1 => -1,
+            -5 => -5,
+            1 => 1,
+            5 => 5,
+            -100 => -_customPreviewSeekSeconds,
+            100 => _customPreviewSeekSeconds,
+            _ => 0
+        };
+        return offsetSeconds != 0;
     }
 
     private void OnOpenPreviewPopupClicked(object sender, RoutedEventArgs e)
@@ -121,29 +204,48 @@ public partial class MainWindow
             _previewPopupWindow = null;
             _previewPopupVideoPath = null;
             _previewPopupVideoAvailable = false;
+            UpdatePreviewAudioRouting();
         };
         _previewPopupWindow.Show();
+        UpdatePreviewAudioRouting();
         SyncPreviewPopupFromActiveSurface(forceSeek: true);
         SetStatus("別窓プレビューを開きました。");
     }
 
     private void OnWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
-        if (e.Key != Key.Space || e.Handled || IsInteractiveInputFocused(e.OriginalSource as DependencyObject))
+        if (e.Handled || IsInteractiveInputFocused(e.OriginalSource as DependencyObject))
         {
             return;
         }
 
-        if (FullPreviewTabItem.IsSelected)
+        if (e.Key == Key.Space)
         {
-            ToggleFullPreviewPlayback();
-        }
-        else if (EditTabItem.IsSelected)
-        {
-            TogglePreviewPlayback();
+            if (FullPreviewTabItem.IsSelected)
+            {
+                ToggleFullPreviewPlayback();
+            }
+            else if (EditTabItem.IsSelected)
+            {
+                TogglePreviewPlayback();
+            }
+
+            e.Handled = true;
+            return;
         }
 
-        e.Handled = true;
+        if (e.Key is not (Key.Left or Key.Right))
+        {
+            return;
+        }
+
+        var seconds = Keyboard.Modifiers.HasFlag(ModifierKeys.Control)
+            ? 1
+            : Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)
+                ? 5
+                : _customPreviewSeekSeconds;
+        var offset = e.Key == Key.Left ? -seconds : seconds;
+        e.Handled = SeekActivePreviewBySeconds(offset);
     }
 
     private void OnMainTabSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -365,32 +467,55 @@ public partial class MainWindow
             ResetPreviewSeek();
         }
 
-        if (_pendingPreviewSeek is { } pendingPosition)
+        var pendingPosition = _pendingPreviewSeek;
+        _pendingPreviewSeek = null;
+        var shouldPlay = _playPreviewWhenMediaOpened;
+        _playPreviewWhenMediaOpened = false;
+        if (shouldPlay)
         {
-            _pendingPreviewSeek = null;
-            SeekPreviewTo(pendingPosition);
+            PreviewPlayer.Play();
+            _isPreviewPlaying = true;
+            _previewTimer.Start();
+            ResetPreviewPlaybackHealth(PreviewPlayer.Position);
+        }
+
+        if (pendingPosition is { } position)
+        {
+            SetPreviewSeek(position);
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.ContextIdle,
+                new Action(() =>
+                {
+                    if (PreviewPlayer.Source is not null && _isPreviewMediaOpened)
+                    {
+                        SeekPreviewTo(position);
+                    }
+                }));
         }
         else
         {
             SetPreviewSeek(PreviewPlayer.Position);
         }
 
-        if (_playPreviewWhenMediaOpened)
-        {
-            _playPreviewWhenMediaOpened = false;
-            PreviewPlayer.Play();
-            _isPreviewPlaying = true;
-            _previewTimer.Start();
-            UpdatePlaybackButtonContent();
-            SetStatus("プレビュー再生中です。");
-            return;
-        }
+        UpdatePlaybackButtonContent();
+        SetStatus(shouldPlay ? "プレビュー再生中です。" : "プレビューの準備ができました。");
+    }
 
-        SetStatus("プレビューの準備ができました。");
+    private void OnPreviewMediaFailed(object sender, ExceptionRoutedEventArgs e)
+    {
+        _previewSeekConfirmationTarget = null;
+        _isRecoveringPreviewMedia = false;
+        _isPreviewAudioSuppressed = false;
+        UpdatePreviewAudioRouting();
+        _isPreviewPlaying = false;
+        _previewTimer.Stop();
+        UpdatePlaybackButtonContent();
+        SetStatus($"プレビュー再生エラー: {e.ErrorException?.Message ?? "不明なメディアエラー"}");
     }
 
     private void OnPreviewMediaEnded(object sender, RoutedEventArgs e)
     {
+        CaptureActivePlaybackPosition(force: true, ended: true);
         _previewTimer.Stop();
         _playPreviewWhenMediaOpened = false;
         _isPreviewPlaying = false;
@@ -403,6 +528,41 @@ public partial class MainWindow
     private void OnPreviewSeekStarted(object sender, MouseButtonEventArgs e)
     {
         BeginPreviewSeek();
+        if (IsSliderThumbInput(e.OriginalSource as DependencyObject, PreviewSeekSlider))
+        {
+            return;
+        }
+
+        PreviewSeekSlider.Value = GetSliderClickValue(PreviewSeekSlider, e);
+        CompletePreviewSeek();
+        e.Handled = true;
+    }
+
+    private static bool IsSliderThumbInput(DependencyObject? source, Slider slider)
+    {
+        while (source is not null && !ReferenceEquals(source, slider))
+        {
+            if (source is Thumb)
+            {
+                return true;
+            }
+
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return false;
+    }
+
+    private static double GetSliderClickValue(Slider slider, MouseButtonEventArgs e)
+    {
+        var width = Math.Max(1d, slider.ActualWidth);
+        var ratio = Math.Clamp(e.GetPosition(slider).X / width, 0d, 1d);
+        if (slider.FlowDirection == FlowDirection.RightToLeft)
+        {
+            ratio = 1d - ratio;
+        }
+
+        return slider.Minimum + ((slider.Maximum - slider.Minimum) * ratio);
     }
 
     private void OnPreviewSeekCompleted(object sender, MouseButtonEventArgs e)
@@ -446,15 +606,12 @@ public partial class MainWindow
         var position = TimeSpan.FromSeconds(Math.Clamp(e.NewValue, 0.0, PreviewSeekSlider.Maximum));
         PreviewPositionTextBlock.Text = FormatPlaybackPosition(position, _previewDuration);
         UpdatePreviewSubtitle(position);
-        if (_isPreviewSeeking && PreviewPlayer.Source is not null && _previewDuration > TimeSpan.Zero)
-        {
-            PreviewPlayer.Position = ClampPreviewPosition(position);
-        }
     }
 
     private void OnFullPreviewPlayClicked(object sender, RoutedEventArgs e)
     {
-        StartFullPreview(FullPreviewPlayer.Source is null ? GetPreviewTimelinePosition() : FullPreviewPlayer.Position);
+        _fullPreviewStallRecoveryCount = 0;
+        ReloadFullPreviewMedia(TimeSpan.Zero, shouldPlay: true, "最初から再生します...");
     }
 
     private void OnPauseFullPreviewClicked(object sender, RoutedEventArgs e)
@@ -464,9 +621,14 @@ public partial class MainWindow
 
     private void OnFullPreviewStopClicked(object sender, RoutedEventArgs e)
     {
+        CaptureActivePlaybackPosition(force: true);
         _playFullPreviewWhenMediaOpened = false;
         _isFullPreviewSeeking = false;
         _isFullPreviewPlaying = false;
+        _fullPreviewSeekConfirmationTarget = null;
+        _isRecoveringFullPreviewMedia = false;
+        _isFullPreviewAudioSuppressed = false;
+        UpdatePreviewAudioRouting();
         FullPreviewPlayer.Stop();
         SetFullPreviewSeek(TimeSpan.Zero);
         HideFullPreviewSubtitle();
@@ -488,32 +650,54 @@ public partial class MainWindow
             ResetFullPreviewSeek();
         }
 
-        if (_pendingFullPreviewSeek is { } pendingPosition)
+        var pendingPosition = _pendingFullPreviewSeek;
+        _pendingFullPreviewSeek = null;
+        var shouldPlay = _playFullPreviewWhenMediaOpened;
+        _playFullPreviewWhenMediaOpened = false;
+        if (shouldPlay)
         {
-            _pendingFullPreviewSeek = null;
-            SeekFullPreviewTo(pendingPosition);
+            FullPreviewPlayer.Play();
+            _isFullPreviewPlaying = true;
+            _previewTimer.Start();
+            ResetFullPreviewPlaybackHealth(FullPreviewPlayer.Position);
+        }
+
+        if (pendingPosition is { } position)
+        {
+            SetFullPreviewSeek(position);
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.ContextIdle,
+                new Action(() =>
+                {
+                    if (FullPreviewPlayer.Source is not null && _isFullPreviewMediaOpened)
+                    {
+                        SeekFullPreviewTo(position);
+                    }
+                }));
         }
         else
         {
             SetFullPreviewSeek(FullPreviewPlayer.Position);
         }
 
-        if (_playFullPreviewWhenMediaOpened)
-        {
-            _playFullPreviewWhenMediaOpened = false;
-            FullPreviewPlayer.Play();
-            _isFullPreviewPlaying = true;
-            _previewTimer.Start();
-            UpdatePlaybackButtonContent();
-            SetStatus("フルプレビュー再生中です。");
-            return;
-        }
+        UpdatePlaybackButtonContent();
+        SetStatus(shouldPlay ? "フルプレビュー再生中です。" : "フルプレビューの準備ができました。");
+    }
 
-        SetStatus("フルプレビューの準備ができました。");
+    private void OnFullPreviewMediaFailed(object sender, ExceptionRoutedEventArgs e)
+    {
+        _fullPreviewSeekConfirmationTarget = null;
+        _isRecoveringFullPreviewMedia = false;
+        _isFullPreviewAudioSuppressed = false;
+        UpdatePreviewAudioRouting();
+        _isFullPreviewPlaying = false;
+        UpdatePlaybackButtonContent();
+        SetStatus($"フルプレビュー再生エラー: {e.ErrorException?.Message ?? "不明なメディアエラー"}");
     }
 
     private void OnFullPreviewMediaEnded(object sender, RoutedEventArgs e)
     {
+        CaptureActivePlaybackPosition(force: true, ended: true);
         _playFullPreviewWhenMediaOpened = false;
         _isFullPreviewPlaying = false;
         FullPreviewPlayer.Stop();
@@ -525,6 +709,14 @@ public partial class MainWindow
     private void OnFullPreviewSeekStarted(object sender, MouseButtonEventArgs e)
     {
         BeginFullPreviewSeek();
+        if (IsSliderThumbInput(e.OriginalSource as DependencyObject, FullPreviewSeekSlider))
+        {
+            return;
+        }
+
+        FullPreviewSeekSlider.Value = GetSliderClickValue(FullPreviewSeekSlider, e);
+        CompleteFullPreviewSeek();
+        e.Handled = true;
     }
 
     private void OnFullPreviewSeekCompleted(object sender, MouseButtonEventArgs e)
@@ -568,10 +760,6 @@ public partial class MainWindow
         var position = TimeSpan.FromSeconds(Math.Clamp(e.NewValue, 0.0, FullPreviewSeekSlider.Maximum));
         FullPreviewPositionTextBlock.Text = FormatPlaybackPosition(position, _fullPreviewDuration);
         UpdateFullPreviewSubtitle(position);
-        if (_isFullPreviewSeeking && FullPreviewPlayer.Source is not null && _fullPreviewDuration > TimeSpan.Zero)
-        {
-            FullPreviewPlayer.Position = ClampFullPreviewPosition(position);
-        }
     }
 
 }

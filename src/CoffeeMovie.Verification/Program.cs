@@ -54,6 +54,81 @@ Assert(japaneseMetadata.Language == "ja", "Japanese subtitle language should be 
 Assert(japaneseMetadata.Role == SubtitleTrackRole.Translation, "Japanese subtitles should default to translation role.");
 Assert(japaneseMetadata.GroupKey == "sample", "Japanese subtitle group key should match English subtitle group key.");
 
+var registrationSyncService = new CoffeeLearningRegistrationSyncService();
+var registeredAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+var sourceLibrary = new MovieLibrary
+{
+    Movies =
+    [
+        new Movie
+        {
+            Id = "movie-registration-sync",
+            Title = "Registration Sync",
+            SubtitleTracks =
+            [
+                new SubtitleTrack
+                {
+                    Id = "track-registration-sync",
+                    SourceFileName = "registration.en.srt",
+                    Language = "en",
+                    Role = SubtitleTrackRole.LearningTarget,
+                    CueCount = 1,
+                    CueLearningStates =
+                    [
+                        new SubtitleCueLearningState
+                        {
+                            CueId = "cue-registration-sync",
+                            CueIndex = 1,
+                            CoffeeLearningRegisteredAt = registeredAt,
+                            CoffeeLearningWordId = "word-registration-sync",
+                            CoffeeLearningDeckId = "deck-registration-sync",
+                            UpdatedAt = registeredAt
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+};
+var targetLibrary = new MovieLibrary
+{
+    Movies =
+    [
+        new Movie
+        {
+            Id = "movie-registration-sync",
+            Title = "Registration Sync",
+            SubtitleTracks =
+            [
+                new SubtitleTrack
+                {
+                    Id = "track-registration-sync",
+                    SourceFileName = "registration.en.srt",
+                    Language = "en",
+                    Role = SubtitleTrackRole.LearningTarget,
+                    CueCount = 1,
+                    CueLearningStates =
+                    [
+                        new SubtitleCueLearningState
+                        {
+                            CueId = "cue-registration-sync",
+                            CueIndex = 1,
+                            Note = "Keep my own note"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+};
+var registrationDocument = registrationSyncService.CreateDocument(sourceLibrary);
+var registrationMerge = registrationSyncService.Merge(targetLibrary, registrationDocument);
+var mergedRegistrationState = targetLibrary.Movies[0].SubtitleTracks[0].CueLearningStates[0];
+Assert(registrationMerge.CuesChanged == 1, "Registration sync should report one changed cue.");
+Assert(mergedRegistrationState.CoffeeLearningRegisteredAt == registeredAt, "Registration timestamp should sync.");
+Assert(mergedRegistrationState.CoffeeLearningWordId == "word-registration-sync", "Registration word id should sync.");
+Assert(mergedRegistrationState.CoffeeLearningDeckId == "deck-registration-sync", "Registration deck id should sync.");
+Assert(mergedRegistrationState.Note == "Keep my own note", "Registration sync should preserve the user note.");
 var root = Path.Combine(Path.GetTempPath(), "coffee-movie-verification-" + Guid.NewGuid().ToString("N"));
 var cache = Path.Combine(Path.GetTempPath(), "coffee-movie-cache-" + Guid.NewGuid().ToString("N"));
 
@@ -105,6 +180,53 @@ try
 
     var staleEntry = await cacheStore.FindFreshEntryAsync("gdrive://files/video-1", 101, modifiedAt, null);
     Assert(staleEntry is null, "Cache entry should be stale when size changes.");
+
+    var driveExportDirectory = Path.Combine(root, "drive-export");
+    var packageVideoPath = Path.Combine(root, "package-source", "metadata-test.mp4");
+    Directory.CreateDirectory(Path.GetDirectoryName(packageVideoPath)!);
+    await File.WriteAllBytesAsync(packageVideoPath, [1, 2, 3, 4, 5, 6]);
+    var packageMovie = new Movie
+    {
+        Id = "movie-metadata-export",
+        Title = "Metadata Export",
+        UpdatedAt = DateTimeOffset.UtcNow,
+        Video = new VideoAsset
+        {
+            SourceKind = VideoSourceKind.LocalFile,
+            CachePath = packageVideoPath,
+            FileName = "metadata-test.mp4",
+            ContentType = "video/mp4",
+            SizeBytes = new FileInfo(packageVideoPath).Length,
+            ModifiedAt = modifiedAt,
+            ContentFingerprint = "video-v1"
+        }
+    };
+    var packageService = new CoffeeMoviePackageService();
+    var initialPackage = await packageService.ExportReaderPackageAsync(packageMovie, driveExportDirectory);
+    var initialPackageBytes = await File.ReadAllBytesAsync(initialPackage.PackagePath);
+
+    packageMovie.Tags.Add("updated-on-pc");
+    packageMovie.UpdatedAt = DateTimeOffset.UtcNow.AddSeconds(1);
+    var metadataExport = await packageService.ExportReaderMetadataAsync(packageMovie, driveExportDirectory);
+    Assert(metadataExport.MetadataOnly && !metadataExport.Skipped, "Metadata changes should update only the sidecar.");
+    var metadataOnlyPackageBytes = await File.ReadAllBytesAsync(initialPackage.PackagePath);
+    Assert(initialPackageBytes.SequenceEqual(metadataOnlyPackageBytes), "Metadata-only export must not rewrite package bytes.");
+    var latestSidecar = await packageService.ReadReaderPackageSidecarAsync(metadataExport.SidecarPath);
+    Assert(latestSidecar.Movie.Tags.Contains("updated-on-pc"), "Metadata-only sidecar should contain updated movie tags.");
+
+    var importedFromStalePackage = await packageService.ImportReaderPackageAsync(
+        initialPackage.PackagePath,
+        paths,
+        authoritativeSidecar: latestSidecar);
+    Assert(importedFromStalePackage.Tags.Contains("updated-on-pc"), "Authoritative sidecar metadata should win over the older package manifest.");
+    Assert(importedFromStalePackage.SourceContentFingerprint == latestSidecar.ContentFingerprint, "Imported movie should keep the latest sidecar fingerprint.");
+
+    var unchangedMetadata = await packageService.ExportReaderMetadataAsync(packageMovie, driveExportDirectory);
+    Assert(unchangedMetadata.Skipped, "Unchanged metadata should be skipped.");
+
+    packageMovie.Video.ContentFingerprint = "video-v2";
+    var videoUpdate = await packageService.ExportReaderMetadataAsync(packageMovie, driveExportDirectory);
+    Assert(!videoUpdate.MetadataOnly && !videoUpdate.Skipped, "A changed video identity should rebuild the package.");
 }
 finally
 {

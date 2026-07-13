@@ -75,12 +75,6 @@ public sealed partial class MovieShelfPage
 
             SetSyncBusy(true, "Google Driveを確認しています...");
             var packages = await _googleDriveSyncService.FindPackagesAsync();
-            if (packages.Count == 0)
-            {
-                _summaryLabel.Text = "同期対象の .coffeemovie がありません";
-                return;
-            }
-
             var imported = 0;
             var unchanged = 0;
             var skipped = 0;
@@ -126,8 +120,10 @@ public sealed partial class MovieShelfPage
                 }
             }
 
+            _summaryLabel.Text = "CoffeeLearning登録状態を同期しています...";
+            var (learningFilesMerged, learningCuesMerged) = await SyncCoffeeLearningRegistrationStateAsync();
             await ReloadAsync();
-            _summaryLabel.Text = $"Drive同期完了: 追加/更新 {imported} / 変更なし {unchanged} / sidecarなし {skipped} / 失敗 {failed}";
+            _summaryLabel.Text = $"Drive同期完了: 追加/更新 {imported} / 変更なし {unchanged} / sidecarなし {skipped} / 失敗 {failed} / CL登録 {learningCuesMerged}件 ({learningFilesMerged}ファイル)";
         }
         catch (GoogleDriveReconnectRequiredException ex)
         {

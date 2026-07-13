@@ -28,6 +28,13 @@
                 <WrapPanel DockPanel.Dock="Right" VerticalAlignment="Center" HorizontalAlignment="Right">
                     <Button Content="&#x30BF;&#x30B0;&#x7BA1;&#x7406;" Click="OnManageTagsClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                     <Button Content="Drive設定" Click="OnConfigureDriveSyncFolderClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                    <Button x:Name="ExportAllDrivePackagesButton"
+                            Content="Driveへ全件反映"
+                            Click="OnExportAllDrivePackagesClicked"
+                            ToolTip="全動画を確認し、タグ・字幕・メモなどに差分がある動画だけDriveへ反映します"
+                            Background="#121A26"
+                            Foreground="White"
+                            BorderBrush="#27364A" />
                     <Button Content="CoffeeLearning設定" Click="OnConfigureCoffeeLearningClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                     <Button x:Name="ImportDrivePackagesButton" Content="Driveから取り込み" Click="OnImportDrivePackagesClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                     <Button Content="動画を追加" Click="OnImportVideoClicked" />
@@ -192,6 +199,8 @@
                             <Button x:Name="AddSubtitleButton" Content="字幕を追加" Click="OnImportSubtitleClicked" />
                             <Button x:Name="WriteSidecarButton" Content="サイドカーを書き出し" Click="OnWriteSidecarClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                             <Button x:Name="ExportDrivePackageButton" Content="スマホ用書き出し" Click="OnExportDrivePackageClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                            <Button x:Name="ExportRoundtripButton" Content="まとめてExport" Click="OnExportRoundtripClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                            <Button x:Name="ImportRoundtripButton" Content="まとめてImport" Click="OnImportRoundtripClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                         </StackPanel>
                     </Grid>
 
@@ -224,7 +233,7 @@
                                     Background="#5DE0D0"
                                     Foreground="#04100F"
                                     BorderBrush="#5DE0D0" />
-                            <Button x:Name="PlayButton" Content="プレビュー再生" Click="OnPlayPreviewClicked" Background="#5DE0D0" />
+                            <Button x:Name="PlayButton" Content="最初から再生" Click="OnPlayPreviewClicked" Background="#5DE0D0" />
                             <Button x:Name="PauseButton" Content="一時停止" Click="OnPausePreviewClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                             <Button x:Name="StopButton" Content="停止" Click="OnStopPreviewClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
                             <Button x:Name="PreviewPopupButton" Content="別窓プレビュー" Click="OnOpenPreviewPopupClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
@@ -239,9 +248,12 @@
                                           LoadedBehavior="Manual"
                                           UnloadedBehavior="Manual"
                                           ScrubbingEnabled="True"
+                                          IsMuted="False"
+                                          Volume="1"
                                           Stretch="Uniform"
                                           MediaOpened="OnPreviewMediaOpened"
-                                          MediaEnded="OnPreviewMediaEnded" />
+                                          MediaEnded="OnPreviewMediaEnded"
+                                          MediaFailed="OnPreviewMediaFailed" />
                             <StackPanel x:Name="PreviewAboveOverlayPanel"
                                         Margin="36,14,36,0"
                                         VerticalAlignment="Top"
@@ -321,6 +333,17 @@
                     </Grid>
 
                     <WrapPanel Grid.Row="4" Margin="0,8,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="&#x518D;&#x751F;&#x4F4D;&#x7F6E;" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <Button x:Name="PreviewRewindOneButton" Content="-1&#x79D2;" Tag="-1" Click="OnPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                        <Button x:Name="PreviewRewindFiveButton" Content="-5&#x79D2;" Tag="-5" Click="OnPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                        <Button x:Name="PreviewRewindCustomButton" Content="-3&#x79D2;" Tag="-100" Click="OnPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                        <Button x:Name="PreviewForwardOneButton" Content="+1&#x79D2;" Tag="1" Click="OnPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                        <Button x:Name="PreviewForwardFiveButton" Content="+5&#x79D2;" Tag="5" Click="OnPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                        <Button x:Name="PreviewForwardCustomButton" Content="+3&#x79D2;" Tag="100" Click="OnPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                        <TextBlock Text="&#x30AB;&#x30B9;&#x30BF;&#x30E0;" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="10,0,4,0" />
+                        <TextBox x:Name="PreviewCustomSeekSecondsTextBox" Width="58" MaxLength="4" Text="3" TextAlignment="Right" LostFocus="OnCustomPreviewSeekSecondsLostFocus" KeyDown="OnCustomPreviewSeekSecondsKeyDown" />
+                        <TextBlock Text="&#x79D2;" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="4,0,10,0" />
+                        <TextBlock Text="Left/Right: custom   Shift: 5s   Ctrl: 1s" Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0" />
                         <TextBlock Text="表示位置"
                                    Foreground="{StaticResource MutedBrush}"
                                    VerticalAlignment="Center"
@@ -621,7 +644,7 @@
                                 <DataGridTextColumn Header="Listen" Binding="{Binding ListeningAccuracy}" Width="70" IsReadOnly="True" />
                                 <DataGridTextColumn Header="Shadow" Binding="{Binding ShadowingAccuracy}" Width="78" IsReadOnly="True" />
                                 <DataGridTextColumn Header="Tags" Binding="{Binding Tags}" Width="130" IsReadOnly="True" />
-                                <DataGridTextColumn Header="CL" Binding="{Binding CoffeeLearningStatus}" Width="42" IsReadOnly="True" />
+                                <DataGridTextColumn Header="CoffeeLearning" Binding="{Binding CoffeeLearningStatus}" Width="94" IsReadOnly="True" />
                                 <DataGridTemplateColumn Header="タグ選択" Width="76">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
@@ -934,6 +957,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
                             <Border Grid.Row="0" Background="Black" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6">
@@ -942,9 +966,12 @@
                                                   LoadedBehavior="Manual"
                                                   UnloadedBehavior="Manual"
                                                   ScrubbingEnabled="True"
+                                                  IsMuted="False"
+                                                  Volume="1"
                                                   Stretch="Uniform"
                                                   MediaOpened="OnFullPreviewMediaOpened"
-                                                  MediaEnded="OnFullPreviewMediaEnded" />
+                                                  MediaEnded="OnFullPreviewMediaEnded"
+                                                  MediaFailed="OnFullPreviewMediaFailed" />
                                     <StackPanel x:Name="FullPreviewAboveOverlayPanel"
                                                 Margin="56,24,56,0"
                                                 VerticalAlignment="Top"
@@ -1008,7 +1035,7 @@
                                 </Grid.ColumnDefinitions>
                                 <Button x:Name="FullPreviewPlayButton"
                                         Grid.Column="0"
-                                        Content="再生"
+                                        Content="最初から再生"
                                         Click="OnFullPreviewPlayClicked" />
                                 <Button x:Name="FullPreviewPauseButton"
                                         Grid.Column="1"
@@ -1058,7 +1085,21 @@
                                            TextAlignment="Right"
                                            VerticalAlignment="Center"
                                            Margin="12,0,0,0" />
-                            </Grid>
+                            <WrapPanel Grid.Row="2"
+                                       Margin="0,8,0,0"
+                                       VerticalAlignment="Center">
+                                <TextBlock Text="&#x518D;&#x751F;&#x4F4D;&#x7F6E;" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <Button x:Name="FullPreviewRewindOneButton" Content="-1&#x79D2;" Tag="-1" Click="OnFullPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                                <Button x:Name="FullPreviewRewindFiveButton" Content="-5&#x79D2;" Tag="-5" Click="OnFullPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                                <Button x:Name="FullPreviewRewindCustomButton" Content="-3&#x79D2;" Tag="-100" Click="OnFullPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                                <Button x:Name="FullPreviewForwardOneButton" Content="+1&#x79D2;" Tag="1" Click="OnFullPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                                <Button x:Name="FullPreviewForwardFiveButton" Content="+5&#x79D2;" Tag="5" Click="OnFullPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                                <Button x:Name="FullPreviewForwardCustomButton" Content="+3&#x79D2;" Tag="100" Click="OnFullPreviewSeekOffsetClicked" Background="#121A26" Foreground="White" BorderBrush="#27364A" />
+                                <TextBlock Text="&#x30AB;&#x30B9;&#x30BF;&#x30E0;" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="10,0,4,0" />
+                                <TextBox x:Name="FullPreviewCustomSeekSecondsTextBox" Width="58" MaxLength="4" Text="3" TextAlignment="Right" LostFocus="OnCustomPreviewSeekSecondsLostFocus" KeyDown="OnCustomPreviewSeekSecondsKeyDown" />
+                                <TextBlock Text="&#x79D2;" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="4,0,10,0" />
+                                <TextBlock Text="Left/Right: custom   Shift: 5s   Ctrl: 1s" Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center" />
+                            </WrapPanel>                            </Grid>
                         </Grid>
                     </TabItem>
                 </TabControl>

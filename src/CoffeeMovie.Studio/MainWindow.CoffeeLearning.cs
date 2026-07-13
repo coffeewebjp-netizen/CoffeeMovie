@@ -179,6 +179,7 @@ public partial class MainWindow
             state.UpdatedAt = DateTimeOffset.UtcNow;
 
             await _libraryStore.UpsertMovieAsync(_selectedMovie);
+            await PublishCoffeeLearningRegistrationStateAsync();
             RenderSceneRows(_previewSubtitleTrack);
             UpdatePreviewSubtitleAtCurrentPosition();
             UpdateFullPreviewSubtitle(FullPreviewPlayer.Position);

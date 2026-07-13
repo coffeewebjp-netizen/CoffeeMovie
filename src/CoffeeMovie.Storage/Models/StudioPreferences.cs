@@ -8,6 +8,8 @@ public sealed class StudioPreferences
 
     public bool ShowLearningNotes { get; set; }
 
+    public int CustomPreviewSeekSeconds { get; set; } = 3;
+
     public string EnglishSubtitleOverlayPosition { get; set; } = "below2";
 
     public string JapaneseSubtitleOverlayPosition { get; set; } = "below1";

@@ -79,6 +79,7 @@ public sealed partial class MoviePlayerPage
         _noteEditor.Text = _activeLearningState.Note ?? string.Empty;
         _aiNoteLabel.Text = _activeLearningState.AiNote ?? string.Empty;
         _aiNoteLabel.IsVisible = !string.IsNullOrWhiteSpace(_activeLearningState.AiNote);
+        _coffeeLearningMemoStatusLabel.IsVisible = IsCoffeeLearningRegistered(_activeLearningState);
         _learningMessageLabel.Text = "現在の英語字幕";
         _learningMessageLabel.TextColor = Color.FromArgb("#A5B3C6");
         UpdateShadowingStatus();
@@ -163,6 +164,7 @@ public sealed partial class MoviePlayerPage
         _noteEditor.Text = string.Empty;
         _aiNoteLabel.Text = string.Empty;
         _aiNoteLabel.IsVisible = false;
+        _coffeeLearningMemoStatusLabel.IsVisible = false;
         _learningMessageLabel.Text = "対象字幕なし";
         _learningMessageLabel.TextColor = Color.FromArgb("#A5B3C6");
         _shadowingStatusLabel.Text = "OK 0 / NG 0";
@@ -231,7 +233,12 @@ public sealed partial class MoviePlayerPage
             return string.Empty;
         }
 
-        var parts = new[] { state.AiNote, state.Note }
+        var parts = new[]
+            {
+                state.AiNote,
+                state.Note,
+                IsCoffeeLearningRegistered(state) ? "✓ CoffeeLearning登録済" : null
+            }
             .Where(part => !string.IsNullOrWhiteSpace(part))
             .Select(part => CollapseWhitespace(part!))
             .ToArray();

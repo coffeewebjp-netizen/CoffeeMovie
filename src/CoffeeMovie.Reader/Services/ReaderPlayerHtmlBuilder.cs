@@ -368,14 +368,21 @@ window.coffeeMovieTogglePlayPause = function() {
   return 'paused';
 };
 
-window.coffeeMovieRewind = function(seconds) {
-  const amount = Math.max(0, Number(seconds) || 0);
-  player.currentTime = Math.max(0, (player.currentTime || 0) - amount);
+window.coffeeMovieSeekRelative = function(seconds) {
+  const amount = Number(seconds) || 0;
+  const target = Math.max(0, (player.currentTime || 0) + amount);
+  player.currentTime = Number.isFinite(player.duration)
+    ? Math.min(target, player.duration)
+    : target;
   setTimeout(() => {
     coffeeMovieNotifyCue(true);
     window.coffeeMovieNotifyPosition(true);
   }, 50);
   return player.currentTime;
+};
+
+window.coffeeMovieRewind = function(seconds) {
+  return window.coffeeMovieSeekRelative(-Math.max(0, Number(seconds) || 0));
 };
 
 player.addEventListener('loadedmetadata', () => {
@@ -520,7 +527,12 @@ player.addEventListener('click', event => {
             return string.Empty;
         }
 
-        var parts = new[] { state.AiNote, state.Note }
+        var parts = new[]
+            {
+                state.AiNote,
+                state.Note,
+                IsCoffeeLearningRegistered(state) ? "✓ CoffeeLearning登録済" : null
+            }
             .Where(part => !string.IsNullOrWhiteSpace(part))
             .Select(part => CollapseWhitespace(part!))
             .ToArray();

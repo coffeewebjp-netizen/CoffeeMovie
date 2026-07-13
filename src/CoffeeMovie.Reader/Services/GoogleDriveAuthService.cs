@@ -7,7 +7,7 @@ namespace CoffeeMovie.Reader.Services;
 
 public sealed class GoogleDriveAuthService
 {
-    private const string DriveReadonlyScope = "https://www.googleapis.com/auth/drive.readonly";
+    private const string DriveScope = "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file";
     private const string BrowserRedirectUri = "net.coffeewebjp.coffeemovie.reader:/oauth2redirect";
     private const string AuthorizationUrl = "https://accounts.google.com/o/oauth2/v2/auth";
     private const string TokenUrl = "https://oauth2.googleapis.com/token";
@@ -321,7 +321,7 @@ public sealed class GoogleDriveAuthService
             ["client_id"] = clientId,
             ["redirect_uri"] = BrowserRedirectUri,
             ["response_type"] = "code",
-            ["scope"] = DriveReadonlyScope,
+            ["scope"] = DriveScope,
             ["access_type"] = "offline",
             ["prompt"] = "consent",
             ["code_challenge"] = codeChallenge,

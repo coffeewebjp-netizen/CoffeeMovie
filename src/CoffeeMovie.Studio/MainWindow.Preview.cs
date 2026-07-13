@@ -124,11 +124,21 @@ public partial class MainWindow
                     HasHighlight: false));
             }
 
-            if (NormalizeOptionalText(state.Note) is { } note)
+            var userNote = NormalizeOptionalText(state.Note);
+            var isCoffeeLearningRegistered = IsCoffeeLearningRegistered(state);
+            if (userNote is not null || isCoffeeLearningRegistered)
             {
+                var memoText = userNote is null ? string.Empty : "MEMO: " + userNote;
+                if (isCoffeeLearningRegistered)
+                {
+                    memoText = string.IsNullOrWhiteSpace(memoText)
+                        ? "✓ CoffeeLearning登録済"
+                        : memoText + Environment.NewLine + "✓ CoffeeLearning登録済";
+                }
+
                 items.Add(new PreviewOverlayItem(
                     PreviewOverlayKind.UserNote,
-                    "MEMO: " + note,
+                    memoText,
                     _userNoteOverlayPosition,
                     HasHighlight: false));
             }
@@ -583,14 +593,17 @@ public partial class MainWindow
         if (_isPreviewPlaying)
         {
             PreviewPlayer.Pause();
+            CaptureActivePlaybackPosition(force: true);
             _isPreviewPlaying = false;
+            _isPreviewAudioSuppressed = false;
+            UpdatePreviewAudioRouting();
             UpdatePreviewSeekFromPlayer();
             UpdatePlaybackButtonContent();
             SetStatus("プレビューを一時停止しました。");
             return;
         }
 
-        StartPreview(PreviewPlayer.Source is null ? null : PreviewPlayer.Position);
+        ResumePreviewPlayback();
     }
 
     private void ToggleFullPreviewPlayback()
@@ -598,14 +611,17 @@ public partial class MainWindow
         if (_isFullPreviewPlaying)
         {
             FullPreviewPlayer.Pause();
+            CaptureActivePlaybackPosition(force: true);
             _isFullPreviewPlaying = false;
+            _isFullPreviewAudioSuppressed = false;
+            UpdatePreviewAudioRouting();
             UpdateFullPreviewSeekFromPlayer();
             UpdatePlaybackButtonContent();
             SetStatus("フルプレビューを一時停止しました。");
             return;
         }
 
-        StartFullPreview(FullPreviewPlayer.Source is null ? null : FullPreviewPlayer.Position);
+        ResumeFullPreviewPlayback();
     }
 
     private void ResetPreviewIfMovieChanged(Movie? movie)
@@ -619,6 +635,7 @@ public partial class MainWindow
             return;
         }
 
+        CapturePlaybackPositionForSource(currentPath, PreviewPlayer.Position, _previewDuration, force: true);
         _previewTimer.Stop();
         PreviewPlayer.Stop();
         _playPreviewWhenMediaOpened = false;
@@ -636,6 +653,8 @@ public partial class MainWindow
         UpdatePlaybackButtonContent();
         if (!string.IsNullOrWhiteSpace(nextPath) && File.Exists(nextPath))
         {
+            var resumePosition = GetResumePosition(movie);
+            _pendingPreviewSeek = resumePosition > TimeSpan.Zero ? resumePosition : null;
             PreviewPlayer.Source = new Uri(nextPath);
         }
     }
@@ -658,14 +677,14 @@ public partial class MainWindow
             _isPreviewMediaOpened = false;
             _playPreviewWhenMediaOpened = playWhenReady;
             ResetPreviewSeek();
-            _pendingPreviewSeek = startPosition;
+            _pendingPreviewSeek = startPosition ?? GetResumePosition(movie);
             PreviewPlayer.Source = source;
             return false;
         }
 
         if (startPosition is not null)
         {
-            _pendingPreviewSeek = startPosition;
+            _pendingPreviewSeek = startPosition ?? GetResumePosition(movie);
         }
 
         if (!_isPreviewMediaOpened || _previewDuration <= TimeSpan.Zero)
@@ -695,14 +714,14 @@ public partial class MainWindow
             _isFullPreviewMediaOpened = false;
             _playFullPreviewWhenMediaOpened = playWhenReady;
             ResetFullPreviewSeek();
-            _pendingFullPreviewSeek = startPosition;
+            _pendingFullPreviewSeek = startPosition ?? GetResumePosition(movie);
             FullPreviewPlayer.Source = source;
             return false;
         }
 
         if (startPosition is not null)
         {
-            _pendingFullPreviewSeek = startPosition;
+            _pendingFullPreviewSeek = startPosition ?? GetResumePosition(movie);
         }
 
         if (!_isFullPreviewMediaOpened || _fullPreviewDuration <= TimeSpan.Zero)
@@ -719,6 +738,10 @@ public partial class MainWindow
     {
         _previewDuration = TimeSpan.Zero;
         _pendingPreviewSeek = null;
+        _previewSeekConfirmationTarget = null;
+        _previewSeekRecoveryCount = 0;
+        _previewStallRecoveryCount = 0;
+        _isRecoveringPreviewMedia = false;
         _isPreviewMediaOpened = false;
         _isPreviewSeeking = false;
 
@@ -740,7 +763,12 @@ public partial class MainWindow
 
     private void UpdatePreviewSeekFromPlayer()
     {
-        if (_isPreviewSeeking || PreviewPlayer.Source is null)
+        if (_isPreviewSeeking || PreviewPlayer.Source is null || HoldPreviewSeekTargetUntilApplied())
+        {
+            return;
+        }
+
+        if (RecoverPreviewIfStalled())
         {
             return;
         }
@@ -762,20 +790,25 @@ public partial class MainWindow
     {
         if (PreviewSeekSlider.IsEnabled)
         {
+            _previewSeekConfirmationTarget = null;
             _isPreviewSeeking = true;
         }
     }
 
     private void CompletePreviewSeek()
     {
+        if (!_isPreviewSeeking)
+        {
+            return;
+        }
+
+        _isPreviewSeeking = false;
         if (!PreviewSeekSlider.IsEnabled)
         {
-            _isPreviewSeeking = false;
             return;
         }
 
         SeekPreviewToSliderValue();
-        _isPreviewSeeking = false;
     }
 
     private void SetPreviewSeek(TimeSpan position)
@@ -811,8 +844,45 @@ public partial class MainWindow
         }
 
         position = ClampPreviewPosition(position);
+        if (!_isRecoveringPreviewMedia)
+        {
+            _previewSeekRecoveryCount = 0;
+        }
+
+        _previewStallRecoveryCount = 0;
+        _previewResumeAfterSeek = _isPreviewPlaying || _playPreviewWhenMediaOpened;
+        _isPreviewAudioSuppressed = _previewResumeAfterSeek
+            && (PreviewPlayer.Position - position).Duration() > TimeSpan.FromMilliseconds(500);
+        UpdatePreviewAudioRouting();
+        _previewSeekConfirmationTarget = position;
+        _previewSeekRequestedAt = DateTimeOffset.UtcNow;
+        var seekSequence = ++_previewSeekSequence;
+        if (_isPreviewPlaying)
+        {
+            PreviewPlayer.Pause();
+        }
+
         PreviewPlayer.Position = position;
+        if (_previewResumeAfterSeek)
+        {
+            ResumePreviewAfterSeekAsync(seekSequence);
+        }
+
+        ResetPreviewPlaybackHealth(position);
         SetPreviewSeek(position);
+    }
+
+    private bool SeekPreviewBySeconds(int offsetSeconds)
+    {
+        if (offsetSeconds == 0 || PreviewPlayer.Source is null || _previewDuration <= TimeSpan.Zero)
+        {
+            return false;
+        }
+
+        _previewStopAt = null;
+        var currentPosition = _previewSeekConfirmationTarget ?? PreviewPlayer.Position;
+        SeekPreviewTo(currentPosition.Add(TimeSpan.FromSeconds(offsetSeconds)));
+        return true;
     }
 
     private TimeSpan ClampPreviewPosition(TimeSpan position)
@@ -829,6 +899,10 @@ public partial class MainWindow
     {
         _fullPreviewDuration = TimeSpan.Zero;
         _pendingFullPreviewSeek = null;
+        _fullPreviewSeekConfirmationTarget = null;
+        _fullPreviewSeekRecoveryCount = 0;
+        _fullPreviewStallRecoveryCount = 0;
+        _isRecoveringFullPreviewMedia = false;
         _isFullPreviewMediaOpened = false;
         _isFullPreviewSeeking = false;
 
@@ -850,7 +924,12 @@ public partial class MainWindow
 
     private void UpdateFullPreviewSeekFromPlayer()
     {
-        if (_isFullPreviewSeeking || FullPreviewPlayer.Source is null)
+        if (_isFullPreviewSeeking || FullPreviewPlayer.Source is null || HoldFullPreviewSeekTargetUntilApplied())
+        {
+            return;
+        }
+
+        if (RecoverFullPreviewIfStalled())
         {
             return;
         }
@@ -862,20 +941,25 @@ public partial class MainWindow
     {
         if (FullPreviewSeekSlider.IsEnabled)
         {
+            _fullPreviewSeekConfirmationTarget = null;
             _isFullPreviewSeeking = true;
         }
     }
 
     private void CompleteFullPreviewSeek()
     {
+        if (!_isFullPreviewSeeking)
+        {
+            return;
+        }
+
+        _isFullPreviewSeeking = false;
         if (!FullPreviewSeekSlider.IsEnabled)
         {
-            _isFullPreviewSeeking = false;
             return;
         }
 
         SeekFullPreviewToSliderValue();
-        _isFullPreviewSeeking = false;
     }
 
     private void SetFullPreviewSeek(TimeSpan position)
@@ -911,8 +995,74 @@ public partial class MainWindow
         }
 
         position = ClampFullPreviewPosition(position);
+        if (!_isRecoveringFullPreviewMedia)
+        {
+            _fullPreviewSeekRecoveryCount = 0;
+        }
+
+        _fullPreviewStallRecoveryCount = 0;
+        _fullPreviewResumeAfterSeek = _isFullPreviewPlaying || _playFullPreviewWhenMediaOpened;
+        _isFullPreviewAudioSuppressed = _fullPreviewResumeAfterSeek
+            && (FullPreviewPlayer.Position - position).Duration() > TimeSpan.FromMilliseconds(500);
+        UpdatePreviewAudioRouting();
+        _fullPreviewSeekConfirmationTarget = position;
+        _fullPreviewSeekRequestedAt = DateTimeOffset.UtcNow;
+        var seekSequence = ++_fullPreviewSeekSequence;
+        if (_isFullPreviewPlaying)
+        {
+            FullPreviewPlayer.Pause();
+        }
+
         FullPreviewPlayer.Position = position;
+        if (_fullPreviewResumeAfterSeek)
+        {
+            ResumeFullPreviewAfterSeekAsync(seekSequence);
+        }
+
+        ResetFullPreviewPlaybackHealth(position);
         SetFullPreviewSeek(position);
+    }
+
+    private bool SeekFullPreviewBySeconds(int offsetSeconds)
+    {
+        if (offsetSeconds == 0 || FullPreviewPlayer.Source is null || _fullPreviewDuration <= TimeSpan.Zero)
+        {
+            return false;
+        }
+
+        var currentPosition = _fullPreviewSeekConfirmationTarget ?? FullPreviewPlayer.Position;
+        SeekFullPreviewTo(currentPosition.Add(TimeSpan.FromSeconds(offsetSeconds)));
+        return true;
+    }
+
+    private bool SeekActivePreviewBySeconds(int offsetSeconds)
+    {
+        if (FullPreviewTabItem.IsSelected)
+        {
+            return SeekFullPreviewBySeconds(offsetSeconds);
+        }
+
+        return EditTabItem.IsSelected && SeekPreviewBySeconds(offsetSeconds);
+    }
+
+    private static int NormalizeCustomPreviewSeekSeconds(int seconds)
+    {
+        return Math.Clamp(seconds, MinimumCustomPreviewSeekSeconds, MaximumCustomPreviewSeekSeconds);
+    }
+
+    private void UpdateCustomPreviewSeekControls()
+    {
+        var seconds = NormalizeCustomPreviewSeekSeconds(_customPreviewSeekSeconds);
+        _customPreviewSeekSeconds = seconds;
+        var rewindLabel = $"-{seconds.ToString(CultureInfo.InvariantCulture)}?";
+        var forwardLabel = $"+{seconds.ToString(CultureInfo.InvariantCulture)}?";
+
+        PreviewRewindCustomButton.Content = rewindLabel;
+        PreviewForwardCustomButton.Content = forwardLabel;
+        FullPreviewRewindCustomButton.Content = rewindLabel;
+        FullPreviewForwardCustomButton.Content = forwardLabel;
+        PreviewCustomSeekSecondsTextBox.Text = seconds.ToString(CultureInfo.InvariantCulture);
+        FullPreviewCustomSeekSecondsTextBox.Text = seconds.ToString(CultureInfo.InvariantCulture);
     }
 
     private TimeSpan ClampFullPreviewPosition(TimeSpan position)

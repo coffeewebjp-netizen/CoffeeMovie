@@ -20,7 +20,7 @@ The Android reader supports Drive-first sync, sidecar thumbnail display on the m
 
 Windows Studio has grown into the preparation workspace for subtitle-learning workflows. It now supports drag/drop import, preview playback with a seek bar and subtitle overlay, full-size preview playback, paired English/Japanese subtitle display, cue click/double-click jumping, cue-level timing edits, tag/highlight metadata, WhisperX English subtitle generation, external Japanese subtitle translation, AI learning-note generation, thumbnail creation from the current preview frame, and Drive-ready package export.
 
-Google Drive integration is implemented around `.coffeemovie` packages and lightweight `.coffeemovie.json` sidecars. Studio skips export when the current content fingerprint matches the existing sidecar. Reader downloads sidecars first, compares `contentFingerprint` with local `SourceContentFingerprint`, reports unchanged packages separately, and downloads large package bytes only when the user needs a missing or updated cache.
+Google Drive integration is implemented around `.coffeemovie` packages and lightweight `.coffeemovie.json` sidecars. Studio bulk reflection skips matching fingerprints and writes only the sidecar for tag, note, thumbnail, or subtitle metadata changes; it rewrites the large package only when missing or when the video identity changed. Reader downloads sidecars first, treats their metadata as authoritative, reports unchanged packages separately, and downloads large package bytes only when the user needs a missing or updated cache.
 
 Reader and Studio keep the loaded library as an in-memory working set for normal navigation, selection, and filtering paths. Explicit refresh, import, sync, and export operations remain the boundaries where disk and Drive work are expected.
 
@@ -120,6 +120,8 @@ src\CoffeeMovie.Reader\bin\Debug\net10.0-android\
 ## Implementation Status
 
 See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for the current PC Studio, Android Reader, Drive sync, subtitle-learning, thumbnail, and shadowing implementation summary.
+
+See [docs/RELEASE_2026-07-14.md](docs/RELEASE_2026-07-14.md) for the consolidated playback, seek, CoffeeLearning, roundtrip, and metadata-only Drive reflection update.
 
 ## Stable Android Identity
 

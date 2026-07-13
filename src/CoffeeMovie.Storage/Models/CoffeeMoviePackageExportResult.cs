@@ -10,6 +10,8 @@ public sealed record CoffeeMoviePackageExportResult(
 {
     public bool Skipped { get; init; }
 
+    public bool MetadataOnly { get; init; }
+
     public string? ContentFingerprint { get; init; }
 
     public DateTimeOffset? ExportedAt { get; init; }

@@ -87,9 +87,15 @@ public sealed partial class MoviePlayerPage
             MarkCoffeeLearningRegistered(result);
             await _libraryService.SaveMovieAsync(_movie);
             await MarkCurrentCueRegisteredInPlayerAsync();
-            _learningMessageLabel.Text = "CoffeeLearningに登録しました";
+            var driveShareResult = await TryShareCoffeeLearningRegistrationAsync();
+            _learningMessageLabel.Text = driveShareResult switch
+            {
+                true => "CoffeeLearningに登録しました / Drive共有済",
+                false => "CoffeeLearningに登録しました / Drive共有は次回同期",
+                null => "CoffeeLearningに登録しました"
+            };
             _learningMessageLabel.TextColor = Color.FromArgb("#5DE0D0");
-            SetPlayerMessage("CoffeeLearningに登録しました", Color.FromArgb("#5DE0D0"));
+            SetPlayerMessage(_learningMessageLabel.Text, Color.FromArgb("#5DE0D0"));
         }
         catch (Exception ex)
         {
@@ -249,9 +255,28 @@ public sealed partial class MoviePlayerPage
             ? null
             : result.DeckId.Trim();
         _activeLearningState.UpdatedAt = DateTimeOffset.UtcNow;
+        _coffeeLearningMemoStatusLabel.IsVisible = true;
         UpdateCoffeeLearningRegisterButtons(enabled: true);
     }
 
+    private async Task<bool?> TryShareCoffeeLearningRegistrationAsync()
+    {
+        if (!await _googleDriveSyncService.IsConfiguredAsync())
+        {
+            return null;
+        }
+
+        try
+        {
+            var snapshot = await _libraryService.ExportCoffeeLearningRegistrationSyncAsync();
+            await _googleDriveSyncService.UploadCoffeeLearningRegistrationStateAsync(snapshot);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
     private async Task MarkCurrentCueRegisteredInPlayerAsync()
     {
         if (_activeEnglishCue is null)

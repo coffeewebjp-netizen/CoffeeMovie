@@ -39,10 +39,30 @@ public sealed partial class ReaderLibraryService
     {
         var manifest = await _packageService.ReadReaderPackageManifestAsync(packagePath, cancellationToken);
         var existing = await GetMovieAsync(manifest.SourceMovieId, cancellationToken);
-        var movie = CreateMovieFromSidecar(manifest, package, existing);
+        var preserveSidecarMetadata = existing is not null
+            && package.HasSidecar
+            && !string.IsNullOrWhiteSpace(existing.SourceContentFingerprint)
+            && !string.Equals(existing.SourceContentFingerprint, manifest.ContentFingerprint, StringComparison.Ordinal);
+        Movie movie;
+        if (preserveSidecarMetadata)
+        {
+            movie = existing!;
+            await ExtractPackageFilesAsync(
+                packagePath,
+                manifest,
+                movie,
+                cancellationToken,
+                extractSupportingFiles: false);
+        }
+        else
+        {
+            movie = CreateMovieFromSidecar(manifest, package, existing);
+            await ExtractPackageFilesAsync(packagePath, manifest, movie, cancellationToken);
+            await ApplySidecarThumbnailAsync(movie, manifest, cancellationToken);
+            movie.SourceMovieUpdatedAt = manifest.Movie.UpdatedAt;
+            movie.SourceContentFingerprint = manifest.ContentFingerprint;
+        }
 
-        await ExtractPackageFilesAsync(packagePath, manifest, movie, cancellationToken);
-        await ApplySidecarThumbnailAsync(movie, manifest, cancellationToken);
         movie.Video.SourceKind = VideoSourceKind.GoogleDrive;
         movie.Video.SourceUri = package.ContentUri;
         movie.Video.SourceKey = package.ContentUri;
@@ -50,8 +70,6 @@ public sealed partial class ReaderLibraryService
         movie.SourcePackageName = package.FileName;
         movie.SourcePackageLastModified = package.LastModified;
         movie.SourcePackageSize = package.Size;
-        movie.SourceMovieUpdatedAt = manifest.Movie.UpdatedAt;
-        movie.SourceContentFingerprint = manifest.ContentFingerprint;
         RefreshMovieSceneMarkers(movie);
 
         await _libraryStore.UpsertMovieAsync(movie, cancellationToken);
@@ -66,7 +84,7 @@ public sealed partial class ReaderLibraryService
                 ContentType = movie.Video.ContentType,
                 SizeBytes = package.Size ?? movie.Video.SizeBytes,
                 SourceModifiedAt = FromUnixMilliseconds(package.LastModified),
-                SourceFingerprint = manifest.ContentFingerprint
+                SourceFingerprint = movie.SourceContentFingerprint
             }, cancellationToken);
         }
 
@@ -187,7 +205,8 @@ public sealed partial class ReaderLibraryService
         string packagePath,
         CoffeeMovieSidecar manifest,
         Movie movie,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool extractSupportingFiles = true)
     {
         await using var packageStream = File.OpenRead(packagePath);
         using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
@@ -212,6 +231,11 @@ public sealed partial class ReaderLibraryService
         movie.Video.ContentType = string.IsNullOrWhiteSpace(movie.Video.ContentType)
             ? GuessVideoContentType(videoFileName, null)
             : movie.Video.ContentType;
+
+        if (!extractSupportingFiles)
+        {
+            return;
+        }
 
         if (!string.IsNullOrWhiteSpace(manifest.Video.ThumbnailPackagePath)
             && archive.GetEntry(manifest.Video.ThumbnailPackagePath) is { } thumbnailEntry)
@@ -479,6 +503,7 @@ public sealed partial class ReaderLibraryService
             package.IsFlagged = package.IsFlagged || local.IsFlagged;
             package.Note = ChooseLocalText(package.Note, local.Note, package.UpdatedAt, local.UpdatedAt);
             package.AiNote = string.IsNullOrWhiteSpace(package.AiNote) ? local.AiNote : package.AiNote;
+            MergeCoffeeLearningRegistration(package, local);
             package.Listening = ChooseMetric(package.Listening, local.Listening);
             package.Shadowing = ChooseMetric(package.Shadowing, local.Shadowing);
             package.UpdatedAt = package.UpdatedAt >= local.UpdatedAt ? package.UpdatedAt : local.UpdatedAt;
@@ -487,6 +512,30 @@ public sealed partial class ReaderLibraryService
         return merged.Values
             .OrderBy(state => state.CueIndex)
             .ToList();
+    }
+
+    private static void MergeCoffeeLearningRegistration(
+        SubtitleCueLearningState target,
+        SubtitleCueLearningState candidate)
+    {
+        var useCandidate = candidate.CoffeeLearningRegisteredAt is not null
+            && (target.CoffeeLearningRegisteredAt is null
+                || candidate.CoffeeLearningRegisteredAt > target.CoffeeLearningRegisteredAt);
+        if (useCandidate)
+        {
+            target.CoffeeLearningRegisteredAt = candidate.CoffeeLearningRegisteredAt;
+            target.CoffeeLearningWordId = candidate.CoffeeLearningWordId;
+            target.CoffeeLearningDeckId = candidate.CoffeeLearningDeckId;
+            return;
+        }
+
+        target.CoffeeLearningRegisteredAt ??= candidate.CoffeeLearningRegisteredAt;
+        target.CoffeeLearningWordId = string.IsNullOrWhiteSpace(target.CoffeeLearningWordId)
+            ? candidate.CoffeeLearningWordId
+            : target.CoffeeLearningWordId;
+        target.CoffeeLearningDeckId = string.IsNullOrWhiteSpace(target.CoffeeLearningDeckId)
+            ? candidate.CoffeeLearningDeckId
+            : target.CoffeeLearningDeckId;
     }
 
     private static string GetLearningStateKey(SubtitleCueLearningState state)

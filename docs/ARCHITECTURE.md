@@ -94,7 +94,7 @@ Studio prepares videos and subtitles before they are watched on mobile:
 8. Use the subtitle tag filter to inspect tagged cue rows inside the selected subtitle track, or across matching movies when a shelf subtitle-tag filter is active.
 9. Export sidecar metadata for future Drive-first sync.
 
-The full-size preview tab reuses the same subtitle-line selection logic as the edit preview, but has its own `MediaElement` and seek state. Both previews are driven by the shared preview timer so subtitle overlays continue to follow playback after media-open and seek operations.
+The full-size preview tab reuses the same subtitle-line selection logic as the edit preview, but has its own `MediaElement` and seek state. Both previews are driven by the shared preview timer so subtitle overlays continue to follow playback after media-open and seek operations. Studio records progress in the shared movie `Playback` state and restores it when a movie source opens. A pending seek target temporarily owns the slider until `MediaElement.Position` reaches the requested point, preventing the 250 ms preview timer from writing a stale pre-seek position back into the UI. Because WPF media seeks are asynchronous and repeated decoder flushes can leave the media clock stalled while the UI still believes playback is active, Studio monitors clock progress and rebuilds the same `MediaElement.Source` once when a seek or active playback fails to advance. Slider-track clicks bypass the WPF `RepeatButton` ordering and convert the click coordinate to a timeline value directly. After a source rebuild, Studio starts the media clock first and applies the pending seek on the next dispatcher cycle so `Play()` cannot reset a pre-start seek back to zero. The media surface stays muted during that preroll and is unmuted only after the target position is confirmed, preventing an audible fragment from the beginning of the file. Active playback seeks pause the media clock, assign `Position`, wait briefly for the asynchronous seek to enter the media pipeline, and only then call `Play`; a sequence token cancels stale delayed-play requests when another seek, pause, or source reload supersedes them. Ordinary pause/resume does not rebuild a healthy media graph. Studio also throttles whole-library playback-progress persistence to avoid periodic JSON serialization affecting playback.
 
 ## Drive Flow
 
@@ -105,9 +105,9 @@ Studio exports a Drive-ready pair:
 1. `.coffeemovie`: ZIP package containing `manifest.json`, video bytes, and subtitle files.
 2. `.coffeemovie.json`: small sidecar containing the same comparison metadata, subtitle cues, and learning states.
 
-Studio computes a `contentFingerprint` before export. If the existing sidecar in the configured Drive sync folder has the same fingerprint and the package file exists, Studio skips the write. If the fingerprint differs, Studio rewrites both package and sidecar and updates `exportedAt`.
+Studio computes a `contentFingerprint` before export. The bulk `Driveへ全件反映` flow skips identical fingerprints and updates only the lightweight sidecar when tags, notes, thumbnails, or subtitle metadata changed while the packaged video identity stayed the same. It creates or rewrites the large package only when the package is missing or the video identity changed. The explicit single-movie `スマホ用書き出し` action remains a full package export.
 
-Reader refreshes sidecars during sync, compares the incoming fingerprint to the local `SourceContentFingerprint`, and separates results into added/updated and unchanged. Video cache is kept only when the incoming video metadata describes the same video asset.
+Reader refreshes sidecars during sync, compares the incoming fingerprint to the local `SourceContentFingerprint`, and separates results into added/updated and unchanged. The sidecar is authoritative for current metadata. If Reader later extracts an older package manifest to obtain video bytes, it preserves the newer sidecar metadata and fingerprint. Video cache is kept only when the incoming video metadata describes the same video asset.
 
 ## Why WebVTT
 
@@ -123,6 +123,16 @@ Studio is the place for precise subtitle repair. A timing edit changes the selec
 4. the original local subtitle file, only when its source path is known and write-back is enabled
 
 Paired English/Japanese tracks are linked by `groupKey`. When sync is enabled, editing cue `index = N` on one track copies the same start/end timestamps to cue `N` on the paired track. Text, tags, notes, and practice metrics remain track-specific.
+
+## Roundtrip Editing Flow
+
+Studio can export the selected movie to a human-editable roundtrip folder:
+
+1. `manifest.json`: movie and subtitle-track identity used to import changes back into the same library movie.
+2. `subtitles/*.srt`: one SRT per subtitle track. Editing these files changes cue text/timing on import.
+3. `notes.csv`: one row per cue, with reference cue text/timestamps plus editable AI note, user note, tags, flag, and CoffeeLearning registration columns.
+
+Roundtrip import uses `movieId + trackId + cueIndex` as the stable key. Subtitle files are applied first and preserve existing cue IDs where indexes match, so cue learning state remains attached. `notes.csv` is then applied as metadata; its cue text and timestamp columns are reference fields rather than the source of subtitle edits. After import, Studio rewrites app-local subtitle files and WebVTT caches, then saves `library.json`.
 
 ## Subtitle Generation Jobs
 
@@ -215,3 +225,7 @@ Reader uses PNG assets for the Android launcher icon and startup experience:
 The project file registers `appicon.png` as the MAUI icon and the Android manifest explicitly maps the app to `@mipmap/appicon` and `@mipmap/appicon_round`. The startup overlay in `MovieShelfPage.cs` uses `startup_icon.png` on the same dark shelf background, then scales and fades the icon away once per page lifetime.
 
 These images should stay alpha-enabled PNGs. If the source image has a white or checkerboard background baked in, regenerate the app assets before building so the Android splash and in-app startup overlay blend into `#05070B`.
+
+## CoffeeLearning Registration Sync Flow
+
+CoffeeLearning registration state uses separate device snapshots named `coffeemovie-coffeelearning-registration-<device>.json`. Studio writes its snapshot into the configured desktop Drive folder; Reader uploads its snapshot through the Drive API. Each client imports every device snapshot and merges registration fields monotonically by movie, track, and cue identity. These files never rewrite package sidecars, so mobile learning activity cannot change the Studio-owned content fingerprint contract.

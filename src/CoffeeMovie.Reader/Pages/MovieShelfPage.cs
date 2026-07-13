@@ -320,7 +320,7 @@ public sealed partial class MovieShelfPage : ContentPage
         {
             var movie = await _libraryService.ImportVideoAsync(result);
             await ReloadAsync();
-            await Navigation.PushAsync(new MoviePlayerPage(_libraryService, _coffeeLearningService, _speechRecognitionService, movie.Id));
+            await Navigation.PushAsync(new MoviePlayerPage(_libraryService, _googleDriveSyncService, _coffeeLearningService, _speechRecognitionService, movie.Id));
         }
         catch (Exception ex)
         {
@@ -400,7 +400,7 @@ public sealed partial class MovieShelfPage : ContentPage
                 }
             }
 
-            await Navigation.PushAsync(new MoviePlayerPage(_libraryService, _coffeeLearningService, _speechRecognitionService, movie.Id));
+            await Navigation.PushAsync(new MoviePlayerPage(_libraryService, _googleDriveSyncService, _coffeeLearningService, _speechRecognitionService, movie.Id));
         }
         finally
         {
