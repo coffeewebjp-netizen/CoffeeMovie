@@ -4,7 +4,7 @@ using CoffeeMovie.Storage.Models;
 
 namespace CoffeeMovie.Storage.Services;
 
-public sealed class MovieLibraryStore
+public sealed partial class MovieLibraryStore
 {
     private readonly CoffeeMoviePaths _paths;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -87,25 +87,14 @@ public sealed class MovieLibraryStore
         return _cachedLibrary;
     }
 
-    private async Task<MovieLibrary> ReadLibraryAsync(CancellationToken cancellationToken)
+    private Task<MovieLibrary> ReadLibraryAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_paths.LibraryPath))
-        {
-            return new MovieLibrary();
-        }
-
-        await using var stream = File.OpenRead(_paths.LibraryPath);
-        return await JsonSerializer.DeserializeAsync<MovieLibrary>(
-            stream,
-            JsonStoreOptions.Default,
-            cancellationToken) ?? new MovieLibrary();
+        return ReadLibraryWithRecoveryAsync(cancellationToken);
     }
 
     private async Task SaveCoreAsync(MovieLibrary library, CancellationToken cancellationToken)
     {
-        _paths.EnsureCreated();
-        await using var stream = File.Create(_paths.LibraryPath);
-        await JsonSerializer.SerializeAsync(stream, library, JsonStoreOptions.Default, cancellationToken);
+        await WriteLibraryAtomicallyAsync(library, backupCurrent: true, cancellationToken);
         _cachedLibrary = library;
         Revision++;
     }

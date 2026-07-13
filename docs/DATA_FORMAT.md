@@ -257,6 +257,17 @@ Reader sync behavior:
 5. Keep the existing video cache only when the incoming video metadata describes the same video asset.
 6. Treat the downloaded sidecar as authoritative; extracting an older package later must not replace newer sidecar metadata or its fingerprint.
 
+## Studio Library Durability
+
+Studio stores its working library in `%APPDATA%/coffee-movie/library.json`. Saves use this sequence:
+
+1. Serialize to `library.json.tmp`.
+2. Flush and deserialize the temporary file to verify it is complete JSON.
+3. Copy the previous valid primary file to `library.json.bak`.
+4. Replace the primary file with the validated temporary file.
+
+On startup, malformed JSON no longer terminates the application. Studio first tries the automatic backup. If no valid backup exists, it salvages every fully completed movie object from a truncated root `movies` array, preserves the original bytes as `library.json.corrupt-<timestamp>`, and writes the recovered library atomically. An incomplete final movie can then be restored from its Drive package/sidecar.
+
 ## Reader Learning-State Backup
 
 Android Reader can export a lightweight JSON backup with `packageType: "reader-learning-state"`. This file is separate from `.coffeemovie` packages and intentionally excludes video bytes, subtitle cue text, and thumbnail data.

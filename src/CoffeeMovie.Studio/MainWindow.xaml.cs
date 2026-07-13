@@ -84,6 +84,16 @@ public partial class MainWindow
         {
             UpdatePreviewAudioRouting();
             await RefreshMoviesAsync();
+            if (_libraryStore.ConsumeRecoveryMessage() is { } recoveryMessage)
+            {
+                SetStatus(recoveryMessage);
+                MessageBox.Show(
+                    this,
+                    recoveryMessage,
+                    "CoffeeMovieライブラリを復旧しました",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
         };
         Closed += OnMainWindowClosed;
         ResetPreviewSeek();

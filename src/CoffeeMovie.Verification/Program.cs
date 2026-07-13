@@ -227,6 +227,45 @@ try
     packageMovie.Video.ContentFingerprint = "video-v2";
     var videoUpdate = await packageService.ExportReaderMetadataAsync(packageMovie, driveExportDirectory);
     Assert(!videoUpdate.MetadataOnly && !videoUpdate.Skipped, "A changed video identity should rebuild the package.");
+    var salvagePaths = new CoffeeMoviePaths(Path.Combine(root, "salvage-library"), Path.Combine(cache, "salvage-cache"));
+    var salvageStore = new MovieLibraryStore(salvagePaths);
+    await salvageStore.SaveAsync(new MovieLibrary
+    {
+        Movies =
+        [
+            new Movie { Id = "recovery-movie-1", Title = "Complete movie" },
+            new Movie { Id = "recovery-movie-2", Title = "Truncated movie" }
+        ]
+    });
+    var salvageJson = await File.ReadAllTextAsync(salvagePaths.LibraryPath);
+    var truncatedMovieOffset = salvageJson.IndexOf("\"id\": \"recovery-movie-2\"", StringComparison.Ordinal);
+    var truncateOffset = salvageJson.IndexOf("\"video\"", truncatedMovieOffset, StringComparison.Ordinal);
+    Assert(truncatedMovieOffset > 0 && truncateOffset > truncatedMovieOffset, "Recovery fixture should find the second movie.");
+    await File.WriteAllTextAsync(salvagePaths.LibraryPath, salvageJson[..(truncateOffset + 12)]);
+
+    var recoveredStore = new MovieLibraryStore(salvagePaths);
+    var salvagedLibrary = await recoveredStore.LoadAsync();
+    Assert(salvagedLibrary.Movies.Count == 1, "Truncated library recovery should keep every fully completed movie.");
+    Assert(salvagedLibrary.Movies[0].Id == "recovery-movie-1", "Truncated library recovery should exclude the incomplete movie.");
+    Assert(!string.IsNullOrWhiteSpace(recoveredStore.ConsumeRecoveryMessage()), "Truncated library recovery should report what was recovered.");
+    Assert(Directory.EnumerateFiles(salvagePaths.RootPath, "library.json.corrupt-*").Any(), "Truncated library recovery should preserve the corrupt source file.");
+
+    var backupPaths = new CoffeeMoviePaths(Path.Combine(root, "backup-library"), Path.Combine(cache, "backup-cache"));
+    var backupStore = new MovieLibraryStore(backupPaths);
+    await backupStore.SaveAsync(new MovieLibrary
+    {
+        Movies = [new Movie { Id = "backup-v1", Title = "Backup version" }]
+    });
+    await backupStore.SaveAsync(new MovieLibrary
+    {
+        Movies = [new Movie { Id = "backup-v2", Title = "Current version" }]
+    });
+    await File.WriteAllTextAsync(backupPaths.LibraryPath, "{ truncated");
+
+    var restoredBackupStore = new MovieLibraryStore(backupPaths);
+    var restoredBackupLibrary = await restoredBackupStore.LoadAsync();
+    Assert(restoredBackupLibrary.Movies.Count == 1 && restoredBackupLibrary.Movies[0].Id == "backup-v1", "A valid automatic backup should take precedence over partial salvage.");
+    Assert(!File.Exists(backupPaths.LibraryPath + ".tmp"), "Atomic save should not leave a temporary file behind.");
 }
 finally
 {
